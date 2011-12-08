@@ -6,8 +6,18 @@
 #include <glib.h>
 #include <sys/time.h>
 #include <string.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <stdlib.h>
+#include <sys/wait.h>
 
 #include <wayland-server.h>
+
+#include "xserver-server-protocol.h"
 
 typedef struct _TWSCompositor TWSCompositor;
 
@@ -69,7 +79,33 @@ struct _TWSCompositor
   GSource *wayland_event_source;
   GList *surfaces;
   GArray *frame_callbacks;
+
+  int xwayland_display_index;
+  char *xwayland_lockfile;
+  int xwayland_abstract_fd;
+  int xwayland_unix_fd;
+  pid_t xwayland_pid;
+  struct wl_client *xwayland_client;
+  struct wl_resource *xserver_resource;
 };
+
+static int signal_pipe[2];
+
+void
+report_signal (int signal)
+{
+  switch (signal)
+    {
+    case SIGINT:
+      write (signal_pipe[1], "I", 1);
+      break;
+    case SIGCHLD:
+      write (signal_pipe[1], "C", 1);
+      break;
+    default:
+      break;
+    }
+}
 
 static guint32
 get_time (void)
@@ -316,7 +352,8 @@ tws_surface_free (TWSSurface *surface)
   compositor->surfaces = g_list_remove (compositor->surfaces, surface);
   tws_surface_detach_buffer (surface);
 
-  clutter_actor_destroy (surface->actor);
+  if (surface->actor)
+    clutter_actor_destroy (surface->actor);
 
   g_slice_free (TWSSurface, surface);
 }
@@ -508,13 +545,411 @@ bind_shell (struct wl_client *client,
                         &tws_shell_interface, id, data);
 }
 
+static char *
+create_lockfile (int display, int *display_out)
+{
+  char *filename;
+  int size;
+  char pid[11];
+  int fd;
+
+  do
+    {
+      char *end;
+      pid_t other;
+
+      filename = g_strdup_printf ("/tmp/.X%d-lock", display);
+      fd = open (filename, O_WRONLY | O_CLOEXEC | O_CREAT | O_EXCL, 0444);
+
+      if (fd < 0 && errno == EEXIST)
+        {
+          fd = open (filename, O_CLOEXEC, O_RDONLY);
+          if (fd < 0 || read (fd, pid, 11) != 11)
+            {
+              const char *msg = strerror (errno);
+              g_warning ("can't read lock file %s: %s", filename, msg);
+              g_free (filename);
+
+              /* ignore error and try the next display number */
+              display++;
+              continue;
+          }
+
+          other = strtol (pid, &end, 0);
+          if (end != pid + 10)
+            {
+              g_warning ("can't parse lock file %s", filename);
+              g_free (filename);
+
+              /* ignore error and try the next display number */
+              display++;
+              continue;
+          }
+
+          if (kill (other, 0) < 0 && errno == ESRCH)
+            {
+              g_warning ("unlinking stale lock file %s", filename);
+              unlink (filename);
+              continue; /* try again */
+          }
+
+          g_free (filename);
+          display++;
+          continue;
+        }
+      else if (fd < 0)
+        {
+          const char *msg = strerror (errno);
+          g_warning ("failed to create lock file %s: %s", filename , msg);
+          g_free (filename);
+          return NULL;
+        }
+
+      break;
+    }
+  while (1);
+
+  /* Subtle detail: we use the pid of the wayland compositor, not the xserver
+   * in the lock file. */
+  size = snprintf (pid, 11, "%10d\n", getpid ());
+  if (size != 11 || write (fd, pid, 11) != 11)
+    {
+      unlink (filename);
+      close (fd);
+      g_warning ("failed to write pid to lock file %s", filename);
+      g_free (filename);
+      return NULL;
+    }
+
+  close (fd);
+
+  *display_out = display;
+  return filename;
+}
+
+static int
+bind_to_abstract_socket (int display)
+{
+  struct sockaddr_un addr;
+  socklen_t size, name_size;
+  int fd;
+
+  fd = socket (PF_LOCAL, SOCK_STREAM | SOCK_CLOEXEC, 0);
+  if (fd < 0)
+    return -1;
+
+  addr.sun_family = AF_LOCAL;
+  name_size = snprintf (addr.sun_path, sizeof addr.sun_path,
+                        "%c/tmp/.X11-unix/X%d", 0, display);
+  size = offsetof (struct sockaddr_un, sun_path) + name_size;
+  if (bind (fd, (struct sockaddr *) &addr, size) < 0)
+    {
+      g_warning ("failed to bind to @%s: %s\n",
+                 addr.sun_path + 1, strerror (errno));
+      close (fd);
+      return -1;
+    }
+
+  if (listen (fd, 1) < 0)
+    {
+      close (fd);
+      return -1;
+    }
+
+  return fd;
+}
+
+static int
+bind_to_unix_socket (int display)
+{
+  struct sockaddr_un addr;
+  socklen_t size, name_size;
+  int fd;
+
+  fd = socket (PF_LOCAL, SOCK_STREAM | SOCK_CLOEXEC, 0);
+  if (fd < 0)
+    return -1;
+
+  addr.sun_family = AF_LOCAL;
+  name_size = snprintf (addr.sun_path, sizeof addr.sun_path,
+                        "/tmp/.X11-unix/X%d", display) + 1;
+  size = offsetof (struct sockaddr_un, sun_path) + name_size;
+  unlink (addr.sun_path);
+  if (bind (fd, (struct sockaddr *) &addr, size) < 0)
+    {
+      char *msg = strerror (errno);
+      g_warning ("failed to bind to %s (%s)\n", addr.sun_path, msg);
+      close (fd);
+      return -1;
+    }
+
+  if (listen (fd, 1) < 0) {
+      unlink (addr.sun_path);
+      close (fd);
+      return -1;
+  }
+
+  return fd;
+}
+
+static gboolean
+start_xwayland (TWSCompositor *compositor)
+{
+  int display = 0;
+  char *lockfile = NULL;
+  int sp[2];
+  pid_t pid;
+
+  do
+    {
+      lockfile = create_lockfile (display, &display);
+      if (!lockfile)
+        {
+         g_warning ("Failed to create an X lock file");
+         return FALSE;
+        }
+
+      compositor->xwayland_abstract_fd = bind_to_abstract_socket (display);
+      if (compositor->xwayland_abstract_fd < 0 ||
+          compositor->xwayland_abstract_fd == EADDRINUSE)
+        {
+          unlink (lockfile);
+          display++;
+          continue;
+        }
+      compositor->xwayland_unix_fd = bind_to_unix_socket (display);
+      if (compositor->xwayland_abstract_fd < 0)
+        {
+          unlink (lockfile);
+          return FALSE;
+        }
+
+      break;
+    }
+  while (1);
+
+  compositor->xwayland_display_index = display;
+  compositor->xwayland_lockfile = lockfile;
+
+  /* We want xwayland to be a wayland client so we make a socketpair to setup a
+   * wayland protocol connection. */
+  if (socketpair (AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sp) < 0)
+    {
+      g_warning ("socketpair failed\n");
+      unlink (lockfile);
+      return 1;
+    }
+
+  switch ((pid = fork()))
+    {
+    case 0:
+        {
+          char *fd_string;
+          char *display_name;
+          /* Make sure the client end of the socket pair doesn't get closed
+           * when we exec xwayland. */
+          int flags = fcntl (sp[1], F_GETFD);
+          if (flags != -1)
+            fcntl (sp[1], F_SETFD, flags & ~FD_CLOEXEC);
+
+          fd_string = g_strdup_printf ("%d", sp[1]);
+          setenv ("WAYLAND_SOCKET", fd_string, 1);
+          g_free (fd_string);
+
+          display_name = g_strdup_printf (":%d",
+                                          compositor->xwayland_display_index);
+
+          if (execl ("/home/bob/local/xserver-xwayland/bin/X",
+                     "/home/bob/local/xserver-xwayland/bin/X",
+                     display_name,
+                     "-wayland",
+                     "-rootless",
+                     "-retro",
+                     /* FIXME: does it make sense to log to the filesystem by
+                      * default? */
+                     "-logfile", "/tmp/xwayland.log",
+                     "-nolisten", "all",
+                     "-terminate",
+                     NULL) < 0)
+            {
+              char *msg = strerror (errno);
+              g_warning ("xwayland exec failed: %s", msg);
+            }
+          exit (-1);
+          return FALSE;
+        }
+    default:
+      g_message ("forked X server, pid %d\n", pid);
+
+      close (sp[1]);
+      compositor->xwayland_client =
+        wl_client_create (compositor->wayland_display, sp[0]);
+
+      compositor->xwayland_pid = pid;
+      break;
+
+    case -1:
+      g_error ("Failed to fork for xwayland server");
+      return FALSE;
+    }
+
+  return TRUE;
+}
+
+static void
+stop_xwayland (TWSCompositor *compositor)
+{
+  char path[256];
+
+  snprintf (path, sizeof path, "/tmp/.X%d-lock",
+            compositor->xwayland_display_index);
+  unlink (path);
+  snprintf (path, sizeof path, "/tmp/.X11-unix/X%d",
+            compositor->xwayland_display_index);
+  unlink (path);
+
+  unlink (compositor->xwayland_lockfile);
+}
+
+static void
+xserver_set_window_id (struct wl_client *client,
+                       struct wl_resource *compositor_resource,
+                       struct wl_resource *surface_resource,
+                       guint32 id)
+{
+#if 0
+  TWSCompositor *compositor = compositor_resource->data;
+  struct wlsc_wm *wm = wxs->wm;
+  struct wl_surface *surface = surface_resource->data;
+  struct wlsc_wm_window *window;
+
+  if (client != wxs->client)
+    return;
+
+  window = wl_hash_table_lookup (wm->window_hash, id);
+  if (window == NULL)
+    {
+      g_warning ("set_window_id for unknown window %d", id);
+      return;
+    }
+
+  g_message ("set_window_id %d for surface %p", id, surface);
+
+  window->surface = (struct wlsc_surface *) surface;
+  window->surface_destroy_listener.func = surface_destroy;
+  wl_list_insert(surface->resource.destroy_listener_list.prev,
+                 &window->surface_destroy_listener.link);
+#endif
+  g_message ("TODO: xserver_set_window_id");
+}
+
+static const struct xserver_interface xserver_implementation = {
+    xserver_set_window_id
+};
+
+static void
+bind_xserver (struct wl_client *client,
+	      void *data,
+              guint32 version,
+              guint32 id)
+{
+  TWSCompositor *compositor = data;
+
+  /* If it's a different client than the xserver we launched,
+   * don't start the wm. */
+  if (client != compositor->xwayland_client)
+    return;
+
+  compositor->xserver_resource =
+    wl_client_add_object (client, &xserver_interface,
+                          &xserver_implementation, id,
+                          compositor);
+
+  /* TODO: Become the window manager for the xserver */
+
+  wl_resource_post_event (compositor->xserver_resource,
+                          XSERVER_LISTEN_SOCKET,
+                          compositor->xwayland_abstract_fd);
+
+  wl_resource_post_event (compositor->xserver_resource,
+                          XSERVER_LISTEN_SOCKET,
+                          compositor->xwayland_unix_fd);
+  g_warning ("bind_xserver");
+}
+
+static gboolean
+signal_handler (GIOChannel *source,
+                GIOCondition condition,
+                void *data)
+{
+  TWSCompositor *compositor = data;
+  char signal;
+  int count;
+
+  for (;;)
+    {
+      count = read (signal_pipe[0], &signal, 1);
+      if (count == EINTR)
+        continue;
+      if (count < 0)
+        {
+          const char *msg = strerror (errno);
+          g_warning ("Error handling signal: %s", msg);
+        }
+      if (count != 1)
+        {
+          g_warning ("Unexpectedly failed to read byte from signal pipe\n");
+          return TRUE;
+        }
+      break;
+    }
+  switch (signal)
+    {
+    case 'I': /* SIGINT */
+      /* TODO: cleanup gracefully */
+      abort ();
+      break;
+    case 'C': /* SIGCHLD */
+        {
+          int status;
+          pid_t pid = waitpid (-1, &status, WNOHANG);
+
+          /* The simplest measure to avoid infinitely re-spawning a crashing
+           * X server */
+          if (!WIFEXITED (status))
+              g_critical ("X Wayland crashed; aborting");
+
+          if (pid == compositor->xwayland_pid)
+            if (!start_xwayland (compositor))
+              g_critical ("Failed to re-start X Wayland server");
+        }
+      break;
+    default:
+      g_warning ("Spurious character '%c' read from signal pipe", signal);
+    }
+
+  return TRUE;
+}
+
 G_MODULE_EXPORT int
 test_wayland_surface_main (int argc, char **argv)
 {
+  GIOChannel *signal_reciever;
+  struct sigaction signal_action;
   TWSCompositor compositor;
   GMainLoop *loop;
 
   memset (&compositor, 0, sizeof (compositor));
+
+  pipe (signal_pipe);
+
+  signal_reciever = g_io_channel_unix_new (signal_pipe[0]);
+  g_io_add_watch (signal_reciever, G_IO_IN, signal_handler, &compositor);
+
+  signal_action.sa_handler = report_signal;
+  signal_action.sa_flags = 0;
+  sigaction (SIGINT, &signal_action, NULL);
+  sigaction (SIGCHLD, &signal_action, NULL);
 
   compositor.wayland_display = wl_display_create ();
   if (compositor.wayland_display == NULL)
@@ -545,7 +980,7 @@ test_wayland_surface_main (int argc, char **argv)
   if (clutter_init (&argc, &argv) != CLUTTER_INIT_SUCCESS)
     return 1;
 
-  compositor.stage = clutter_stage_get_default ();
+  compositor.stage = clutter_stage_new ();
   clutter_stage_set_user_resizable (CLUTTER_STAGE (compositor.stage), FALSE);
   g_signal_connect_after (compositor.stage, "paint",
                           G_CALLBACK (paint_finished_cb), &compositor);
@@ -554,14 +989,40 @@ test_wayland_surface_main (int argc, char **argv)
 
   if (wl_display_add_global (compositor.wayland_display, &wl_shell_interface,
                              &compositor, bind_shell) == NULL)
-    g_error ("Failed to register a global shell object");
+    {
+      stop_xwayland (&compositor);
+      g_error ("Failed to register a global shell object");
+    }
 
   clutter_actor_show (compositor.stage);
 
   if (wl_display_add_socket (compositor.wayland_display, "wayland-0"))
-    g_error ("Failed to create socket");
+    {
+      stop_xwayland (&compositor);
+      g_error ("Failed to create socket");
+    }
+
+  wl_display_add_global (compositor.wayland_display,
+                         &xserver_interface,
+                         &compositor,
+                         bind_xserver);
+
+  /* XXX: It's important that we only try and start xwayland after we have
+   * initialized EGL because EGL implements the "wl_drm" interface which
+   * xwayland requires to determine what drm device name it should use.
+   *
+   * By waiting until we've shown the stage above we ensure that the underlying
+   * GL resources for the surface have also been allocated and so EGL must be
+   * initialized by this point.
+   */
+
+  if (!start_xwayland (&compositor))
+    return 1;
+
 
   g_main_loop_run (loop);
+
+  stop_xwayland (&compositor);
 
   return 0;
 }
