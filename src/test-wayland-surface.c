@@ -25,6 +25,7 @@ typedef struct
 {
   struct wl_buffer *wayland_buffer;
   GList *surfaces_attached_to;
+  struct wl_listener buffer_destroy_listener;
 } TWSBuffer;
 
 typedef struct
@@ -36,6 +37,7 @@ typedef struct
   TWSBuffer *buffer;
   ClutterActor *actor;
   gboolean has_shell_surface;
+  struct wl_listener surface_destroy_listener;
 } TWSSurface;
 
 typedef struct
@@ -176,13 +178,25 @@ wayland_event_source_new (struct wl_event_loop *loop)
   return &source->source;
 }
 
+static void
+buffer_destroy_callback (struct wl_listener *listener,
+                         struct wl_resource *resource,
+                         guint32 time)
+{
+  g_warning ("Buffer destroy callback");
+}
+
 static TWSBuffer *
 tws_buffer_new (struct wl_buffer *wayland_buffer)
 {
-  TWSBuffer *buffer = g_slice_new (TWSBuffer);
+  TWSBuffer *buffer = g_slice_new0 (TWSBuffer);
 
   buffer->wayland_buffer = wayland_buffer;
   buffer->surfaces_attached_to = NULL;
+
+  buffer->buffer_destroy_listener.func = buffer_destroy_callback;
+  wl_list_insert (wayland_buffer->resource.destroy_listener_list.prev,
+                  &buffer->buffer_destroy_listener.link);
 
   return buffer;
 }
@@ -392,6 +406,14 @@ tws_surface_resource_destroy_cb (struct wl_resource *wayland_surface_resource)
 }
 
 static void
+surface_destroy_callback (struct wl_listener *listener,
+                          struct wl_resource *resource,
+                          guint32 time)
+{
+  g_warning ("Surface destroy callback");
+}
+
+static void
 tws_compositor_create_surface (struct wl_client *wayland_client,
                                struct wl_resource *wayland_compositor_resource,
                                guint32 id)
@@ -410,6 +432,10 @@ tws_compositor_create_surface (struct wl_client *wayland_client,
   surface->wayland_surface.resource.data = surface;
 
   wl_client_add_resource (wayland_client, &surface->wayland_surface.resource);
+
+  surface->surface_destroy_listener.func = surface_destroy_callback;
+  wl_list_insert (surface->wayland_surface.resource.destroy_listener_list.prev,
+                  &surface->surface_destroy_listener.link);
 
   compositor->surfaces = g_list_prepend (compositor->surfaces, surface);
 }
