@@ -207,7 +207,8 @@ tws_buffer_free (TWSBuffer *buffer)
 static void
 shm_buffer_created (struct wl_buffer *wayland_buffer)
 {
-  wayland_buffer->user_data = tws_buffer_new (wayland_buffer);
+  /* We ignore the buffer until it is attached to a surface */
+  wayland_buffer->user_data = NULL;
 }
 
 static void
@@ -219,6 +220,11 @@ shm_buffer_damaged (struct wl_buffer *wayland_buffer,
 {
   TWSBuffer *buffer = wayland_buffer->user_data;
   GList *l;
+
+  /* We only have an associated TWSBuffer once the wayland buffer has
+   * been attached to a surface. */
+  if (!buffer)
+    return;
 
   for (l = buffer->surfaces_attached_to; l; l = l->next)
     {
@@ -234,6 +240,8 @@ shm_buffer_damaged (struct wl_buffer *wayland_buffer,
 static void
 shm_buffer_destroyed (struct wl_buffer *wayland_buffer)
 {
+  /* We only have an associated TWSBuffer once the wayland buffer has
+   * been attached to a surface. */
   if (wayland_buffer->user_data)
     tws_buffer_free ((TWSBuffer *)wayland_buffer->user_data);
 }
@@ -287,8 +295,6 @@ tws_surface_attach_buffer (struct wl_client *wayland_client,
 
   tws_surface_detach_buffer (surface);
 
-  /* XXX: we will have been notified of shm buffers already via the
-   * callbacks, but this will be the first we know of drm buffers */
   if (!buffer)
     {
       buffer = tws_buffer_new (wayland_buffer);
