@@ -1110,18 +1110,12 @@ test_wayland_surface_main (int argc, char **argv)
 
   if (wl_display_add_global (compositor.wayland_display, &wl_shell_interface,
                              &compositor, bind_shell) == NULL)
-    {
-      stop_xwayland (&compositor);
-      g_error ("Failed to register a global shell object");
-    }
+    g_error ("Failed to register a global shell object");
 
   clutter_actor_show (compositor.stage);
 
   if (wl_display_add_socket (compositor.wayland_display, "wayland-0"))
-    {
-      stop_xwayland (&compositor);
-      g_error ("Failed to create socket");
-    }
+    g_error ("Failed to create socket");
 
   wl_display_add_global (compositor.wayland_display,
                          &xserver_interface,
