@@ -1055,7 +1055,6 @@ test_wayland_surface_main (int argc, char **argv)
   GIOChannel *signal_reciever;
   struct sigaction signal_action;
   TWSCompositor compositor;
-  GMainLoop *loop;
 
   memset (&compositor, 0, sizeof (compositor));
 
@@ -1086,7 +1085,6 @@ test_wayland_surface_main (int argc, char **argv)
   if (!compositor.wayland_shm)
     g_error ("Failed to allocate setup wayland shm callbacks");
 
-  loop = g_main_loop_new (NULL, FALSE);
   compositor.wayland_loop =
     wl_display_get_event_loop (compositor.wayland_display);
   compositor.wayland_event_source =
@@ -1137,8 +1135,7 @@ test_wayland_surface_main (int argc, char **argv)
   if (!start_xwayland (&compositor))
     return 1;
 
-
-  g_main_loop_run (loop);
+  clutter_main ();
 
   stop_xwayland (&compositor);
 
