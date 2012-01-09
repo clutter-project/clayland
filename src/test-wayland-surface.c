@@ -339,12 +339,21 @@ tws_surface_attach_buffer (struct wl_client *wayland_client,
 
 static void
 tws_surface_damage (struct wl_client *client,
-                    struct wl_resource *resource,
+                    struct wl_resource *surface_resource,
                     gint32 x,
                     gint32 y,
                     gint32 width,
                     gint32 height)
 {
+  TWSSurface *surface = surface_resource->data;
+  if (surface->buffer)
+    {
+      clutter_wayland_surface_damage_buffer (CLUTTER_WAYLAND_SURFACE (surface->actor),
+                                             surface->buffer->wayland_buffer,
+                                             x, y, width, height);
+    }
+  g_warning ("Damage");
+
 }
 
 static void
