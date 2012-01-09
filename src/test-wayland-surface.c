@@ -208,6 +208,8 @@ tws_buffer_free (TWSBuffer *buffer)
 
   buffer->wayland_buffer->user_data = NULL;
 
+  wl_list_remove (&buffer->buffer_destroy_listener.link);
+
   for (l = buffer->surfaces_attached_to; l; l = l->next)
     {
       TWSSurface *surface = l->data;
