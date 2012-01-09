@@ -1101,6 +1101,11 @@ test_wayland_surface_main (int argc, char **argv)
   g_signal_connect_after (compositor.stage, "paint",
                           G_CALLBACK (paint_finished_cb), &compositor);
 
+  g_signal_connect (compositor.stage,
+                    "destroy",
+                    G_CALLBACK (clutter_main_quit),
+                    NULL /* user_data */);
+
   tws_compositor_create_output (&compositor, 0, 0, 800, 600);
 
   if (wl_display_add_global (compositor.wayland_display, &wl_shell_interface,
