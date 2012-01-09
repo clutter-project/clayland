@@ -19,6 +19,7 @@
 
 #include "xserver-server-protocol.h"
 #include "tws-compositor.h"
+#include "tws-input.h"
 
 typedef struct
 {
@@ -83,6 +84,8 @@ struct _TWSCompositor
   pid_t xwayland_pid;
   struct wl_client *xwayland_client;
   struct wl_resource *xserver_resource;
+
+  TwsInputDevice *input_device;
 };
 
 static int signal_pipe[2];
@@ -307,6 +310,7 @@ tws_surface_attach_buffer (struct wl_client *wayland_client,
       surface->actor = clutter_wayland_surface_new (&surface->wayland_surface);
       clutter_container_add_actor (CLUTTER_CONTAINER (compositor->stage),
                                    surface->actor);
+      clutter_actor_set_reactive (surface->actor, TRUE);
     }
 
   surface_actor = CLUTTER_WAYLAND_SURFACE (surface->actor);
@@ -1038,6 +1042,16 @@ signal_handler (GIOChannel *source,
   return TRUE;
 }
 
+static gboolean
+event_cb (ClutterActor *stage,
+          const ClutterEvent *event,
+          TWSCompositor *compositor)
+{
+  tws_input_device_handle_event (compositor->input_device, event);
+
+  return FALSE;
+}
+
 G_MODULE_EXPORT int
 test_wayland_surface_main (int argc, char **argv)
 {
@@ -1090,6 +1104,13 @@ test_wayland_surface_main (int argc, char **argv)
   g_signal_connect_after (compositor.stage, "paint",
                           G_CALLBACK (paint_finished_cb), &compositor);
 
+  compositor.input_device = tws_input_device_new (compositor.wayland_display);
+
+  g_signal_connect (compositor.stage,
+                    "event",
+                    G_CALLBACK (event_cb),
+                    &compositor);
+
   g_signal_connect (compositor.stage,
                     "destroy",
                     G_CALLBACK (clutter_main_quit),
@@ -1126,6 +1147,8 @@ test_wayland_surface_main (int argc, char **argv)
   clutter_main ();
 
   stop_xwayland (&compositor);
+
+  /* FIXME: free the input device */
 
   return 0;
 }
