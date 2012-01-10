@@ -30,8 +30,8 @@ typedef struct
 
 typedef struct
 {
-  TWSCompositor *compositor;
   struct wl_surface wayland_surface;
+  TWSCompositor *compositor;
   int x;
   int y;
   TWSBuffer *buffer;
