@@ -5,6 +5,7 @@
 #include <clutter/clutter.h>
 #include <clutter/wayland/clutter-wayland-compositor.h>
 #include <clutter/wayland/clutter-wayland-surface.h>
+#include <linux/input.h>
 #include <stdlib.h>
 #include "tws-input.h"
 #include "tws-compositor.h"
@@ -203,27 +204,45 @@ handle_motion_event (TwsInputDevice *input_device,
 }
 
 static void
-handle_button_press_event (TwsInputDevice *input_device,
-                           const ClutterButtonEvent *event)
+handle_button_event (TwsInputDevice *input_device,
+                     const ClutterButtonEvent *event)
 {
   struct wl_input_device *device =
     (struct wl_input_device *) input_device;
   struct wl_surface *surface = device->pointer_focus;
   gboolean state = event->type == CLUTTER_BUTTON_PRESS;
+  uint32_t button;
+
+  switch (event->button)
+    {
+      /* The evdev input right and middle button numbers are swapped
+         relative to how Clutter numbers them */
+    case 2:
+      button = BTN_MIDDLE;
+      break;
+
+    case 3:
+      button = BTN_RIGHT;
+      break;
+
+    default:
+      button = event->button + BTN_LEFT - 1;
+      break;
+    }
 
   if (state && surface && device->grab == NULL)
     wl_input_device_start_grab (device,
                                 &device->implicit_grab,
-                                event->button,
+                                button,
                                 event->time);
 
   if (device->grab)
     device->grab->interface->button (device->grab,
                                      event->time,
-                                     event->button,
+                                     button,
                                      state);
 
-  if (!state && device->grab && device->grab_button == event->button)
+  if (!state && device->grab && device->grab_button == button)
     {
       wl_input_device_end_grab (device, event->time);
 
@@ -243,8 +262,9 @@ tws_input_device_handle_event (TwsInputDevice *input_device,
       break;
 
     case CLUTTER_BUTTON_PRESS:
-      handle_button_press_event (input_device,
-                                 (const ClutterButtonEvent *) event);
+    case CLUTTER_BUTTON_RELEASE:
+      handle_button_event (input_device,
+                           (const ClutterButtonEvent *) event);
       break;
 
     default:
