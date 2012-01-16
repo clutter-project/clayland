@@ -14,63 +14,7 @@ struct _TwsInputDevice
 {
   struct wl_input_device parent;
 
-  /* Last position of the pointer */
-  float pointer_x, pointer_y;
-
-  /* Position of the pointer within the surface */
-  int32_t pointer_sx, pointer_sy;
-};
-
-static void
-implicit_grab_motion (struct wl_grab *grab,
-                      uint32_t time,
-                      int32_t x,
-                      int32_t y)
-{
-  struct wl_resource *resource;
-
-  resource = grab->input_device->pointer_focus_resource;
-
-  if (resource)
-    {
-      TWSSurface *surface = (TWSSurface *) grab->input_device->pointer_focus;
-      float sx, sy;
-
-      clutter_actor_transform_stage_point (surface->actor,
-                                           x,
-                                           y,
-                                           &sx,
-                                           &sy);
-
-      wl_resource_post_event (resource, WL_INPUT_DEVICE_MOTION,
-                              time, x, y, (int32_t) sx, (int32_t) sy);
-    }
-}
-
-static void
-implicit_grab_button (struct wl_grab *grab,
-                      uint32_t time,
-                      int32_t button,
-                      int32_t state)
-{
-  struct wl_resource *resource;
-
-  resource = grab->input_device->pointer_focus_resource;
-
-  if (resource)
-    wl_resource_post_event (resource, WL_INPUT_DEVICE_BUTTON,
-                            time, button, state);
-}
-
-static void
-implicit_grab_end(struct wl_grab *grab, uint32_t time)
-{
-}
-
-static const struct wl_grab_interface implicit_grab_interface = {
-  implicit_grab_motion,
-  implicit_grab_button,
-  implicit_grab_end
+  ClutterActor *current_stage;
 };
 
 static void
@@ -123,8 +67,6 @@ tws_input_device_new (struct wl_display *display)
 
   wl_input_device_init (&device->parent);
 
-  device->parent.implicit_grab.interface = &implicit_grab_interface;
-
   wl_display_add_global (display,
                          &wl_input_device_interface,
                          device,
@@ -134,73 +76,23 @@ tws_input_device_new (struct wl_display *display)
 }
 
 static void
-set_pointer_focus_for_event (TwsInputDevice *input_device,
-                             const ClutterEvent *event)
-{
-  struct wl_input_device *device =
-    (struct wl_input_device *) input_device;
-  struct wl_surface *surface;
-
-  clutter_event_get_coords (event,
-                            &input_device->pointer_x,
-                            &input_device->pointer_y);
-
-  if (CLUTTER_WAYLAND_IS_SURFACE (event->any.source))
-    {
-      ClutterWaylandSurface *surface_actor =
-        CLUTTER_WAYLAND_SURFACE (event->any.source);
-      float fsx, fsy;
-
-      surface = clutter_wayland_surface_get_surface (surface_actor);
-
-      clutter_actor_transform_stage_point (event->any.source,
-                                           input_device->pointer_x,
-                                           input_device->pointer_y,
-                                           &fsx, &fsy);
-      input_device->pointer_sx = fsx;
-      input_device->pointer_sy = fsy;
-    }
-  else
-    {
-      surface = NULL;
-      input_device->pointer_sx = input_device->pointer_x;
-      input_device->pointer_sy = input_device->pointer_y;
-    }
-
-  wl_input_device_set_pointer_focus (device,
-                                     surface,
-                                     event->any.time,
-                                     input_device->pointer_x,
-                                     input_device->pointer_y,
-                                     input_device->pointer_sx,
-                                     input_device->pointer_sy);
-}
-
-static void
 handle_motion_event (TwsInputDevice *input_device,
                      const ClutterMotionEvent *event)
 {
   struct wl_input_device *device =
     (struct wl_input_device *) input_device;
 
-  if (device->grab)
-    device->grab->interface->motion (device->grab,
-                                     event->time,
-                                     event->x,
-                                     event->y);
-  else
-    {
-      set_pointer_focus_for_event (input_device, (const ClutterEvent *) event);
+  device->x = event->x;
+  device->y = event->y;
 
-      if (device->pointer_focus_resource)
-        wl_resource_post_event (device->pointer_focus_resource,
-                                WL_INPUT_DEVICE_MOTION,
-                                time,
-                                (int32_t) input_device->pointer_x,
-                                (int32_t) input_device->pointer_y,
-                                input_device->pointer_sx,
-                                input_device->pointer_sy);
-    }
+  tws_input_device_repick (input_device,
+                           event->time,
+                           event->source);
+
+  device->grab->interface->motion (device->grab,
+                                   event->time,
+                                   device->grab->x,
+                                   device->grab->y);
 }
 
 static void
@@ -209,7 +101,6 @@ handle_button_event (TwsInputDevice *input_device,
 {
   struct wl_input_device *device =
     (struct wl_input_device *) input_device;
-  struct wl_surface *surface = device->pointer_focus;
   gboolean state = event->type == CLUTTER_BUTTON_PRESS;
   uint32_t button;
 
@@ -230,24 +121,22 @@ handle_button_event (TwsInputDevice *input_device,
       break;
     }
 
-  if (state && surface && device->grab == NULL)
-    wl_input_device_start_grab (device,
-                                &device->implicit_grab,
-                                button,
-                                event->time);
-
-  if (device->grab)
-    device->grab->interface->button (device->grab,
-                                     event->time,
-                                     button,
-                                     state);
-
-  if (!state && device->grab && device->grab_button == button)
+  if (state)
     {
-      wl_input_device_end_grab (device, event->time);
+      if (device->button_count == 0)
+        {
+          device->grab_button = button;
+          device->grab_time = event->time;
+          device->grab_x = device->x;
+          device->grab_y = device->y;
+        }
 
-      set_pointer_focus_for_event (input_device, (const ClutterEvent *) event);
+      device->button_count++;
     }
+  else
+    device->button_count--;
+
+  device->grab->interface->button (device->grab, event->time, button, state);
 }
 
 void
@@ -269,5 +158,69 @@ tws_input_device_handle_event (TwsInputDevice *input_device,
 
     default:
       break;
+    }
+}
+
+/* The actor argument can be NULL in which case a Clutter pick will be
+   performed to determine the right actor. An actor should only be
+   passed if the repick is being performed due to an event in which
+   case Clutter will have already performed a pick so we can avoid
+   redundantly doing another one */
+void
+tws_input_device_repick (TwsInputDevice *device,
+                         uint32_t time,
+                         ClutterActor *actor)
+{
+  struct wl_input_device *input_device = (struct wl_input_device *) device;
+  struct wl_surface *surface;
+  TWSSurface *focus;
+
+  if (actor == NULL && device->current_stage)
+    {
+      ClutterStage *stage = CLUTTER_STAGE (device->current_stage);
+      actor = clutter_stage_get_actor_at_pos (stage,
+                                              CLUTTER_PICK_REACTIVE,
+                                              input_device->x, input_device->y);
+    }
+
+  if (actor)
+    device->current_stage = clutter_actor_get_stage (actor);
+  else
+    device->current_stage = NULL;
+
+  if (CLUTTER_WAYLAND_IS_SURFACE (actor))
+    {
+      ClutterWaylandSurface *wl_surface = CLUTTER_WAYLAND_SURFACE (actor);
+      float ax, ay;
+
+      clutter_actor_transform_stage_point (actor,
+                                           input_device->x, input_device->y,
+                                           &ax, &ay);
+      input_device->current_x = ax;
+      input_device->current_y = ay;
+
+      surface = clutter_wayland_surface_get_surface (wl_surface);
+    }
+  else
+    surface = NULL;
+
+  if (surface != input_device->current)
+    {
+      const struct wl_grab_interface *interface = input_device->grab->interface;
+      interface->focus (input_device->grab, time, surface,
+                        input_device->current_x, input_device->current_y);
+      input_device->current = surface;
+    }
+
+  focus = (TWSSurface *) input_device->grab->focus;
+  if (focus)
+    {
+      float ax, ay;
+
+      clutter_actor_transform_stage_point (focus->actor,
+                                           input_device->x, input_device->y,
+                                           &ax, &ay);
+      input_device->grab->x = ax;
+      input_device->grab->y = ay;
     }
 }

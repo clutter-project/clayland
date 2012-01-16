@@ -12,4 +12,9 @@ void
 tws_input_device_handle_event (TwsInputDevice *input_device,
                                const ClutterEvent *event);
 
+void
+tws_input_device_repick (TwsInputDevice *input_device,
+                         uint32_t time,
+                         ClutterActor *actor);
+
 #endif /* __TWS_INPUT_H__ */

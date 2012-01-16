@@ -380,6 +380,16 @@ const struct wl_surface_interface tws_surface_interface = {
   tws_surface_frame
 };
 
+/* This should be called whenever the window stacking changes to
+   update the current position on all of the input devices */
+void
+tws_compositor_repick (TWSCompositor *compositor)
+{
+  tws_input_device_repick (compositor->input_device,
+                           get_time (),
+                           NULL);
+}
+
 static void
 tws_surface_free (TWSSurface *surface)
 {
@@ -391,6 +401,8 @@ tws_surface_free (TWSSurface *surface)
     clutter_actor_destroy (surface->actor);
 
   g_slice_free (TWSSurface, surface);
+
+  tws_compositor_repick (compositor);
 }
 
 static void
