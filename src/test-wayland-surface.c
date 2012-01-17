@@ -1061,6 +1061,21 @@ event_cb (ClutterActor *stage,
 {
   tws_input_device_handle_event (compositor->input_device, event);
 
+  /* This implements click-to-focus */
+  if (event->type == CLUTTER_BUTTON_PRESS &&
+      CLUTTER_WAYLAND_IS_SURFACE (event->any.source))
+    {
+      ClutterWaylandSurface *cw_surface =
+        CLUTTER_WAYLAND_SURFACE (event->any.source);
+      struct wl_surface *wl_surface =
+        clutter_wayland_surface_get_surface (cw_surface);
+
+      wl_input_device_set_keyboard_focus ((struct wl_input_device *)
+                                          compositor->input_device,
+                                          wl_surface,
+                                          event->any.time);
+    }
+
   return FALSE;
 }
 

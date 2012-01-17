@@ -7,6 +7,7 @@
 #include <clutter/wayland/clutter-wayland-surface.h>
 #include <linux/input.h>
 #include <stdlib.h>
+#include <string.h>
 #include "tws-input.h"
 #include "tws-compositor.h"
 
@@ -139,6 +140,70 @@ handle_button_event (TwsInputDevice *input_device,
   device->grab->interface->button (device->grab, event->time, button, state);
 }
 
+static void
+handle_key_event (TwsInputDevice *input_device,
+                  const ClutterKeyEvent *event)
+{
+  struct wl_input_device *device =
+    (struct wl_input_device *) input_device;
+  gboolean state = event->type == CLUTTER_KEY_PRESS;
+  guint evdev_code;
+
+  /* We can't do anything with the event if we can't get an evdev
+     keycode for it */
+  if (event->device == NULL ||
+      !clutter_input_device_keycode_to_evdev (event->device,
+                                              event->hardware_keycode,
+                                              &evdev_code))
+    return;
+
+  /* We want to ignore events that are sent because of auto-repeat. In
+     the Clutter event stream these appear as a single key press
+     event. We can detect that because the key will already have been
+     pressed */
+  if (state)
+    {
+      uint32_t *end = (void *) ((char *) device->keys.data + device->keys.size);
+      uint32_t *k;
+
+      /* Ignore the event if the key is already down */
+      for (k = device->keys.data; k < end; k++)
+        if (*k == evdev_code)
+          return;
+
+      /* Otherwise add the key to the list of pressed keys */
+      k = wl_array_add (&device->keys, sizeof (*k));
+      *k = evdev_code;
+    }
+  else
+    {
+      uint32_t *end = (void *) ((char *) device->keys.data + device->keys.size);
+      uint32_t *k;
+
+      /* Remove the key from the array */
+      for (k = device->keys.data; k < end; k++)
+        if (*k == evdev_code)
+          {
+            *k = *(end - 1);
+            device->keys.size -= sizeof (*k);
+
+            goto found;
+          }
+
+      g_warning ("unexpected key release event for key 0x%x", evdev_code);
+
+    found:
+      (void) 0;
+    }
+
+  if (device->keyboard_focus_resource)
+    wl_resource_post_event (device->keyboard_focus_resource,
+                            WL_INPUT_DEVICE_KEY,
+                            event->time,
+                            evdev_code,
+                            state);
+}
+
 void
 tws_input_device_handle_event (TwsInputDevice *input_device,
                                const ClutterEvent *event)
@@ -154,6 +219,12 @@ tws_input_device_handle_event (TwsInputDevice *input_device,
     case CLUTTER_BUTTON_RELEASE:
       handle_button_event (input_device,
                            (const ClutterButtonEvent *) event);
+      break;
+
+    case CLUTTER_KEY_PRESS:
+    case CLUTTER_KEY_RELEASE:
+      handle_key_event (input_device,
+                        (const ClutterKeyEvent *) event);
       break;
 
     default:
