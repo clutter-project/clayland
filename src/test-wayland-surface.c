@@ -1131,6 +1131,8 @@ test_wayland_surface_main (int argc, char **argv)
   g_signal_connect_after (compositor.stage, "paint",
                           G_CALLBACK (paint_finished_cb), &compositor);
 
+  wl_data_device_manager_init (compositor.wayland_display);
+
   compositor.input_device = tws_input_device_new (compositor.wayland_display);
 
   g_signal_connect (compositor.stage,
