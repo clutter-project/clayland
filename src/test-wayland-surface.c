@@ -265,6 +265,9 @@ tws_surface_detach_buffer (TWSSurface *surface)
 
   if (buffer)
     {
+      wl_resource_queue_event(&buffer->wayland_buffer->resource,
+                              WL_BUFFER_RELEASE);
+
       buffer->surfaces_attached_to =
         g_list_remove (buffer->surfaces_attached_to, surface);
       if (buffer->surfaces_attached_to == NULL)
