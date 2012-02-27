@@ -2,7 +2,8 @@ bin_PROGRAMS = test-wayland-surface
 
 INCLUDES = \
 	@CLUTTER_CFLAGS@ \
-	@COGL_CFLAGS@
+	@COGL_CFLAGS@ \
+	-DXWAYLAND_PATH='"@XWAYLAND_PATH@"'
 
 test_wayland_surface_SOURCES = \
 	test-wayland-surface.c \

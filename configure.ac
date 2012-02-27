@@ -36,6 +36,12 @@ AC_ARG_WITH([wayland-protocols],
               AC_MSG_ERROR([Please specify the location of the Wayland protocol extensions with --with-wayland-protocols=DIR])
             ])
 
+AC_ARG_WITH([xwayland-path],
+            [AS_HELP_STRING([--with-xwayland-path], [Absolute path for an X Wayland server])],
+            [XWAYLAND_PATH="$withval"],
+            [XWAYLAND_PATH="$bindir/Xorg"])
+AC_SUBST(XWAYLAND_PATH)
+
 AC_CONFIG_FILES([
         Makefile
         src/Makefile

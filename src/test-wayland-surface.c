@@ -908,8 +908,8 @@ start_xwayland (TWSCompositor *compositor)
           display_name = g_strdup_printf (":%d",
                                           compositor->xwayland_display_index);
 
-          if (execl ("/home/bob/local/xserver-xwayland/bin/X",
-                     "/home/bob/local/xserver-xwayland/bin/X",
+          if (execl (XWAYLAND_PATH,
+                     XWAYLAND_PATH,
                      display_name,
                      "-wayland",
                      "-rootless",
