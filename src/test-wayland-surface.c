@@ -1082,8 +1082,8 @@ event_cb (ClutterActor *stage,
   return FALSE;
 }
 
-G_MODULE_EXPORT int
-test_wayland_surface_main (int argc, char **argv)
+int
+main (int argc, char **argv)
 {
   GIOChannel *signal_reciever;
   struct sigaction signal_action;
