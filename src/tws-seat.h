@@ -19,23 +19,26 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __TWS_INPUT_H__
-#define __TWS_INPUT_H__
+#ifndef __TWS_SEAT_H__
+#define __TWS_SEAT_H__
 
 #include <wayland-server.h>
 
-typedef struct _TwsInputDevice TwsInputDevice;
+typedef struct _TwsSeat TwsSeat;
 
-TwsInputDevice *
-tws_input_device_new (struct wl_display *display);
-
-void
-tws_input_device_handle_event (TwsInputDevice *input_device,
-                               const ClutterEvent *event);
+TwsSeat *
+tws_seat_new (struct wl_display *display);
 
 void
-tws_input_device_repick (TwsInputDevice *input_device,
-                         uint32_t time,
-                         ClutterActor *actor);
+tws_seat_handle_event (TwsSeat *seat,
+                       const ClutterEvent *event);
 
-#endif /* __TWS_INPUT_H__ */
+void
+tws_seat_repick (TwsSeat *seat,
+                 uint32_t time,
+                 ClutterActor *actor);
+
+void
+tws_seat_free (TwsSeat *seat);
+
+#endif /* __TWS_SEAT_H__ */

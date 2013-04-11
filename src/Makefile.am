@@ -8,8 +8,10 @@ INCLUDES = \
 test_wayland_surface_SOURCES = \
 	test-wayland-surface.c \
 	tws-compositor.h \
-	tws-input.c \
-	tws-input.h \
+	tws-keyboard.c \
+	tws-keyboard.h \
+	tws-seat.c \
+	tws-seat.h \
 	xserver-protocol.c \
 	xserver-server-protocol.h
 

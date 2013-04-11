@@ -25,15 +25,9 @@
 #include <glib.h>
 #include <wayland-server.h>
 #include <clutter/clutter.h>
+#include <cairo.h>
 
 typedef struct _TWSCompositor TWSCompositor;
-
-typedef struct
-{
-  struct wl_buffer *wayland_buffer;
-  GList *surfaces_attached_to;
-  struct wl_listener buffer_destroy_listener;
-} TWSBuffer;
 
 typedef struct
 {
@@ -41,10 +35,26 @@ typedef struct
   TWSCompositor *compositor;
   int x;
   int y;
-  TWSBuffer *buffer;
+  struct wl_buffer *buffer;
+  struct wl_listener buffer_destroy_listener;
   ClutterActor *actor;
   gboolean has_shell_surface;
-  struct wl_listener surface_destroy_listener;
+
+  /* All the pending state, that wl_surface.commit will apply. */
+  struct
+  {
+    /* wl_surface.attach */
+    struct wl_buffer *buffer;
+    struct wl_listener buffer_destroy_listener;
+    int32_t sx;
+    int32_t sy;
+
+    /* wl_surface.damage */
+    cairo_region_t *damage;
+
+    /* wl_surface.frame */
+    struct wl_list frame_callback_list;
+  } pending;
 } TWSSurface;
 
 #endif /* __TWS_COMPOSITOR_H__ */

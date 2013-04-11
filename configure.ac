@@ -1,6 +1,7 @@
 AC_INIT([test-wayland-surface], 0.1)
 
 AM_CONFIG_HEADER([config.h])
+AC_GNU_SOURCE
 
 AM_INIT_AUTOMAKE([1.11 foreign])
 
@@ -16,6 +17,8 @@ AS_IF([test "x$have_atan2f" = "xno"],
 
 PKG_CHECK_MODULES(CLUTTER, [clutter-1.0])
 PKG_CHECK_MODULES(COGL, [cogl-2.0-experimental])
+
+AC_CHECK_FUNCS([mkostemp])
 
 AC_PATH_PROG([GLIB_GENMARSHAL], [glib-genmarshal])
 AC_PATH_PROG([GLIB_MKENUMS], [glib-mkenums])

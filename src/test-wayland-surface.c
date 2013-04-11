@@ -3,7 +3,7 @@
  *
  * An example Wayland compositor using Clutter
  *
- * Copyright (C) 2012  Intel Corporation.
+ * Copyright (C) 2012, 2013  Intel Corporation.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -42,7 +42,13 @@
 
 #include "xserver-server-protocol.h"
 #include "tws-compositor.h"
-#include "tws-input.h"
+#include "tws-seat.h"
+
+typedef struct
+{
+  struct wl_resource resource;
+  cairo_region_t *region;
+} TWSRegion;
 
 typedef struct
 {
@@ -75,13 +81,12 @@ typedef struct
 {
   GSource source;
   GPollFD pfd;
-  struct wl_event_loop *loop;
+  struct wl_display *display;
 } WaylandEventSource;
 
 typedef struct
 {
-  /* GList node used as an embedded list */
-  GList node;
+  struct wl_list link;
 
   /* Pointer back to the compositor */
   TWSCompositor *compositor;
@@ -92,13 +97,12 @@ typedef struct
 struct _TWSCompositor
 {
   struct wl_display *wayland_display;
-  struct wl_shm *wayland_shm;
   struct wl_event_loop *wayland_loop;
   ClutterActor *stage;
   GList *outputs;
   GSource *wayland_event_source;
   GList *surfaces;
-  GQueue frame_callbacks;
+  struct wl_list frame_callbacks;
 
   int xwayland_display_index;
   char *xwayland_lockfile;
@@ -108,7 +112,7 @@ struct _TWSCompositor
   struct wl_client *xwayland_client;
   struct wl_resource *xserver_resource;
 
-  TwsInputDevice *input_device;
+  TwsSeat *seat;
 };
 
 static int signal_pipe[2];
@@ -140,7 +144,12 @@ get_time (void)
 static gboolean
 wayland_event_source_prepare (GSource *base, int *timeout)
 {
+  WaylandEventSource *source = (WaylandEventSource *)base;
+
   *timeout = -1;
+
+  wl_display_flush_clients (source->display);
+
   return FALSE;
 }
 
@@ -157,7 +166,10 @@ wayland_event_source_dispatch (GSource *base,
                                void *data)
 {
   WaylandEventSource *source = (WaylandEventSource *)base;
-  wl_event_loop_dispatch (source->loop, 0);
+  struct wl_event_loop *loop = wl_display_get_event_loop (source->display);
+
+  wl_event_loop_dispatch (loop, 0);
+
   return TRUE;
 }
 
@@ -169,14 +181,16 @@ static GSourceFuncs wayland_event_source_funcs =
   NULL
 };
 
-GSource *
-wayland_event_source_new (struct wl_event_loop *loop)
+static GSource *
+wayland_event_source_new (struct wl_display *display)
 {
   WaylandEventSource *source;
+  struct wl_event_loop *loop =
+    wl_display_get_event_loop (display);
 
   source = (WaylandEventSource *) g_source_new (&wayland_event_source_funcs,
                                                 sizeof (WaylandEventSource));
-  source->loop = loop;
+  source->display = display;
   source->pfd.fd = wl_event_loop_get_fd (loop);
   source->pfd.events = G_IO_IN | G_IO_ERR;
   g_source_add_poll (&source->source, &source->pfd);
@@ -185,166 +199,102 @@ wayland_event_source_new (struct wl_event_loop *loop)
 }
 
 static void
-buffer_destroy_callback (struct wl_listener *listener,
-                         struct wl_resource *resource,
-                         guint32 time)
+surface_damaged (TWSSurface *surface,
+                 cairo_region_t *region)
 {
-  g_warning ("Buffer destroy callback");
-}
+  struct wl_buffer *wayland_buffer = surface->buffer;
 
-static TWSBuffer *
-tws_buffer_new (struct wl_buffer *wayland_buffer)
-{
-  TWSBuffer *buffer = g_slice_new0 (TWSBuffer);
-
-  buffer->wayland_buffer = wayland_buffer;
-  buffer->surfaces_attached_to = NULL;
-
-  buffer->buffer_destroy_listener.func = buffer_destroy_callback;
-  wl_list_insert (wayland_buffer->resource.destroy_listener_list.prev,
-                  &buffer->buffer_destroy_listener.link);
-
-  return buffer;
-}
-
-static void
-tws_buffer_free (TWSBuffer *buffer)
-{
-  GList *l;
-
-  buffer->wayland_buffer->user_data = NULL;
-
-  wl_list_remove (&buffer->buffer_destroy_listener.link);
-
-  for (l = buffer->surfaces_attached_to; l; l = l->next)
+  if (surface->actor)
     {
-      TWSSurface *surface = l->data;
-      surface->buffer = NULL;
-    }
-
-  g_list_free (buffer->surfaces_attached_to);
-  g_slice_free (TWSBuffer, buffer);
-}
-
-static void
-shm_buffer_created (struct wl_buffer *wayland_buffer)
-{
-  /* We ignore the buffer until it is attached to a surface */
-  wayland_buffer->user_data = NULL;
-}
-
-static void
-shm_buffer_damaged (struct wl_buffer *wayland_buffer,
-		    gint32 x,
-                    gint32 y,
-                    gint32 width,
-                    gint32 height)
-{
-  TWSBuffer *buffer = wayland_buffer->user_data;
-  GList *l;
-
-  /* We only have an associated TWSBuffer once the wayland buffer has
-   * been attached to a surface. */
-  if (!buffer)
-    return;
-
-  for (l = buffer->surfaces_attached_to; l; l = l->next)
-    {
-      TWSSurface *surface = l->data;
+      int i, n_rectangles = cairo_region_num_rectangles (region);
       ClutterWaylandSurface *surface_actor =
         CLUTTER_WAYLAND_SURFACE (surface->actor);
-      clutter_wayland_surface_damage_buffer (surface_actor,
-                                             wayland_buffer,
-                                             x, y, width, height);
+
+      for (i = 0; i < n_rectangles; i++)
+        {
+          cairo_rectangle_int_t rectangle;
+
+          cairo_region_get_rectangle (region, i, &rectangle);
+
+          clutter_wayland_surface_damage_buffer (surface_actor,
+                                                 wayland_buffer,
+                                                 rectangle.x,
+                                                 rectangle.y,
+                                                 rectangle.width,
+                                                 rectangle.height);
+        }
     }
 }
-
-static void
-shm_buffer_destroyed (struct wl_buffer *wayland_buffer)
-{
-  /* We only have an associated TWSBuffer once the wayland buffer has
-   * been attached to a surface. */
-  if (wayland_buffer->user_data)
-    tws_buffer_free ((TWSBuffer *)wayland_buffer->user_data);
-}
-
-const static struct wl_shm_callbacks shm_callbacks = {
-  shm_buffer_created,
-  shm_buffer_damaged,
-  shm_buffer_destroyed
-};
 
 static void
 tws_surface_destroy (struct wl_client *wayland_client,
                      struct wl_resource *wayland_resource)
 {
-  wl_resource_destroy (wayland_resource, get_time ());
+  wl_resource_destroy (wayland_resource);
 }
 
 static void
 tws_surface_detach_buffer (TWSSurface *surface)
 {
-  TWSBuffer *buffer = surface->buffer;
+  struct wl_buffer *buffer = surface->buffer;
 
   if (buffer)
     {
-      wl_resource_queue_event(&buffer->wayland_buffer->resource,
-                              WL_BUFFER_RELEASE);
+      wl_list_remove (&surface->buffer_destroy_listener.link);
 
-      buffer->surfaces_attached_to =
-        g_list_remove (buffer->surfaces_attached_to, surface);
-      if (buffer->surfaces_attached_to == NULL)
-        tws_buffer_free (buffer);
       surface->buffer = NULL;
+
+      /* FIXME: This should probably ask the ClutterWaylandSurface to
+       * destroy its texture? */
     }
 }
 
 static void
-tws_surface_attach_buffer (struct wl_client *wayland_client,
-                           struct wl_resource *wayland_surface_resource,
-                           struct wl_resource *wayland_buffer_resource,
-                           gint32 dx, gint32 dy)
+tws_surface_detach_buffer_and_notify (TWSSurface *surface)
 {
-  struct wl_buffer *wayland_buffer = wayland_buffer_resource->data;
-  TWSBuffer *buffer = wayland_buffer->user_data;
-  TWSSurface *surface = wayland_surface_resource->data;
-  TWSCompositor *compositor = surface->compositor;
-  ClutterWaylandSurface *surface_actor;
+  struct wl_buffer *buffer = surface->buffer;
 
-  /* XXX: in the case where we are reattaching the same buffer we can
-   * simply bail out. Note this is important because if we don't bail
-   * out then the _detach_buffer will actually end up destroying the
-   * buffer we're trying to attach. */
-  if (buffer && surface->buffer == buffer)
-    return;
+  if (buffer)
+    {
+      g_assert (buffer->resource.client != NULL);
+
+      wl_resource_queue_event (&buffer->resource, WL_BUFFER_RELEASE);
+
+      tws_surface_detach_buffer (surface);
+    }
+}
+
+static void
+surface_handle_buffer_destroy (struct wl_listener *listener,
+                               void *data)
+{
+  TWSSurface *surface =
+    wl_container_of (listener, surface, buffer_destroy_listener);
 
   tws_surface_detach_buffer (surface);
+}
 
-  if (!buffer)
-    {
-      buffer = tws_buffer_new (wayland_buffer);
-      wayland_buffer->user_data = buffer;
-    }
+static void
+tws_surface_attach (struct wl_client *wayland_client,
+                    struct wl_resource *wayland_surface_resource,
+                    struct wl_resource *wayland_buffer_resource,
+                    gint32 sx, gint32 sy)
+{
+  TWSSurface *surface = wayland_surface_resource->data;
+  struct wl_buffer *buffer =
+    wayland_buffer_resource ? wayland_buffer_resource->data : NULL;
 
-  g_return_if_fail (g_list_find (buffer->surfaces_attached_to, surface) == NULL);
+  /* Attach without commit in between does not send wl_buffer.release */
+  if (surface->pending.buffer)
+    wl_list_remove (&surface->pending.buffer_destroy_listener.link);
 
-  buffer->surfaces_attached_to = g_list_prepend (buffer->surfaces_attached_to,
-                                                 surface);
+  surface->pending.sx = sx;
+  surface->pending.sy = sy;
+  surface->pending.buffer = buffer;
 
-  if (!surface->actor)
-    {
-      surface->actor = clutter_wayland_surface_new (&surface->wayland_surface);
-      clutter_container_add_actor (CLUTTER_CONTAINER (compositor->stage),
-                                   surface->actor);
-      clutter_actor_set_reactive (surface->actor, TRUE);
-    }
-
-  surface_actor = CLUTTER_WAYLAND_SURFACE (surface->actor);
-  if (!clutter_wayland_surface_attach_buffer (surface_actor, wayland_buffer,
-                                              NULL))
-    g_warning ("Failed to attach buffer to ClutterWaylandSurface");
-
-  surface->buffer = buffer;
+  if (buffer)
+    wl_signal_add (&buffer->resource.destroy_signal,
+                   &surface->pending.buffer_destroy_listener);
 }
 
 static void
@@ -356,14 +306,9 @@ tws_surface_damage (struct wl_client *client,
                     gint32 height)
 {
   TWSSurface *surface = surface_resource->data;
-  if (surface->buffer)
-    {
-      clutter_wayland_surface_damage_buffer (CLUTTER_WAYLAND_SURFACE (surface->actor),
-                                             surface->buffer->wayland_buffer,
-                                             x, y, width, height);
-    }
-  g_warning ("Damage");
+  cairo_rectangle_int_t rectangle = { x, y, width, height };
 
+  cairo_region_union_rectangle (surface->pending.damage, &rectangle);
 }
 
 static void
@@ -371,9 +316,7 @@ destroy_frame_callback (struct wl_resource *callback_resource)
 {
   TWSFrameCallback *callback = callback_resource->data;
 
-  g_queue_unlink (&callback->compositor->frame_callbacks,
-                  &callback->node);
-
+  wl_list_remove (&callback->link);
   g_slice_free (TWSFrameCallback, callback);
 }
 
@@ -387,23 +330,118 @@ tws_surface_frame (struct wl_client *client,
 
   callback = g_slice_new0 (TWSFrameCallback);
   callback->compositor = surface->compositor;
-  callback->node.data = callback;
   callback->resource.object.interface = &wl_callback_interface;
   callback->resource.object.id = callback_id;
   callback->resource.destroy = destroy_frame_callback;
   callback->resource.data = callback;
 
   wl_client_add_resource (client, &callback->resource);
+  wl_list_insert (surface->pending.frame_callback_list.prev, &callback->link);
+}
 
-  g_queue_push_tail_link (&surface->compositor->frame_callbacks,
-                          &callback->node);
+static void
+tws_surface_set_opaque_region (struct wl_client *client,
+                               struct wl_resource *resource,
+                               struct wl_resource *region)
+{
+}
+
+static void
+tws_surface_set_input_region (struct wl_client *client,
+                              struct wl_resource *resource,
+                              struct wl_resource *region)
+{
+}
+
+static void
+empty_region (cairo_region_t *region)
+{
+  cairo_rectangle_int_t rectangle = { 0, 0, 0, 0 };
+  cairo_region_intersect_rectangle (region, &rectangle);
+}
+
+static void
+tws_surface_commit (struct wl_client *client,
+                    struct wl_resource *resource)
+{
+  TWSSurface *surface = resource->data;
+  TWSCompositor *compositor = surface->compositor;
+
+  /* wl_surface.attach */
+  if (surface->buffer != surface->pending.buffer)
+    {
+      tws_surface_detach_buffer_and_notify (surface);
+
+      if (surface->pending.buffer)
+        {
+          ClutterWaylandSurface *surface_actor;
+          GError *error = NULL;
+
+          if (!surface->actor)
+            {
+              ClutterActor *stage = compositor->stage;
+
+              surface->actor =
+                clutter_wayland_surface_new (&surface->wayland_surface);
+              clutter_container_add_actor (CLUTTER_CONTAINER (stage),
+                                           surface->actor);
+              clutter_actor_set_reactive (surface->actor, TRUE);
+            }
+
+          surface_actor = CLUTTER_WAYLAND_SURFACE (surface->actor);
+
+          if (!clutter_wayland_surface_attach_buffer (surface_actor,
+                                                      surface->pending.buffer,
+                                                      &error))
+            {
+              g_warning ("Failed to attach buffer to "
+                         "ClutterWaylandSurface: %s\n",
+                         error->message);
+              g_clear_error (&error);
+            }
+
+          surface->buffer = surface->pending.buffer;
+
+          wl_signal_add (&surface->buffer->resource.destroy_signal,
+                         &surface->buffer_destroy_listener);
+        }
+    }
+  if (surface->pending.buffer)
+    {
+      wl_list_remove (&surface->pending.buffer_destroy_listener.link);
+      surface->pending.buffer = NULL;
+    }
+  surface->pending.sx = 0;
+  surface->pending.sy = 0;
+
+  /* wl_surface.damage */
+  if (surface->buffer &&
+      surface->actor)
+    surface_damaged (surface, surface->pending.damage);
+  empty_region (surface->pending.damage);
+
+  /* wl_surface.frame */
+  wl_list_insert_list (&compositor->frame_callbacks,
+                       &surface->pending.frame_callback_list);
+  wl_list_init (&surface->pending.frame_callback_list);
+}
+
+static void
+tws_surface_set_buffer_transform (struct wl_client *client,
+                                  struct wl_resource *resource,
+                                  int32_t transform)
+{
 }
 
 const struct wl_surface_interface tws_surface_interface = {
   tws_surface_destroy,
-  tws_surface_attach_buffer,
+  tws_surface_attach,
   tws_surface_damage,
-  tws_surface_frame
+  tws_surface_frame,
+  tws_surface_set_opaque_region,
+  tws_surface_set_input_region,
+  tws_surface_commit,
+  tws_surface_set_buffer_transform
 };
 
 /* This should be called whenever the window stacking changes to
@@ -411,20 +449,31 @@ const struct wl_surface_interface tws_surface_interface = {
 void
 tws_compositor_repick (TWSCompositor *compositor)
 {
-  tws_input_device_repick (compositor->input_device,
-                           get_time (),
-                           NULL);
+  tws_seat_repick (compositor->seat,
+                   get_time (),
+                   NULL);
 }
 
 static void
 tws_surface_free (TWSSurface *surface)
 {
   TWSCompositor *compositor = surface->compositor;
+  TWSFrameCallback *cb, *next;
+
   compositor->surfaces = g_list_remove (compositor->surfaces, surface);
-  tws_surface_detach_buffer (surface);
+  tws_surface_detach_buffer_and_notify (surface);
 
   if (surface->actor)
     clutter_actor_destroy (surface->actor);
+
+  if (surface->pending.buffer)
+    wl_list_remove (&surface->pending.buffer_destroy_listener.link);
+
+  cairo_region_destroy (surface->pending.damage);
+
+  wl_list_for_each_safe (cb, next,
+                         &surface->pending.frame_callback_list, link)
+    wl_resource_destroy (&cb->resource);
 
   g_slice_free (TWSSurface, surface);
 
@@ -432,18 +481,20 @@ tws_surface_free (TWSSurface *surface)
 }
 
 static void
-tws_surface_resource_destroy_cb (struct wl_resource *wayland_surface_resource)
+tws_surface_resource_destroy_cb (struct wl_resource *resource)
 {
-  TWSSurface *surface = wayland_surface_resource->data;
+  TWSSurface *surface = resource->data;
   tws_surface_free (surface);
 }
 
 static void
-surface_destroy_callback (struct wl_listener *listener,
-                          struct wl_resource *resource,
-                          guint32 time)
+surface_handle_pending_buffer_destroy (struct wl_listener *listener,
+                                       void *data)
 {
-  g_warning ("Surface destroy callback");
+  TWSSurface *surface =
+    wl_container_of (listener, surface, pending.buffer_destroy_listener);
+
+  surface->pending.buffer = NULL;
 }
 
 static void
@@ -464,13 +515,88 @@ tws_compositor_create_surface (struct wl_client *wayland_client,
           (void (**)(void)) &tws_surface_interface;
   surface->wayland_surface.resource.data = surface;
 
+  surface->pending.damage = cairo_region_create ();
+
+  surface->buffer_destroy_listener.notify =
+    surface_handle_buffer_destroy;
+
+  surface->pending.buffer_destroy_listener.notify =
+    surface_handle_pending_buffer_destroy;
+  wl_list_init (&surface->pending.frame_callback_list);
+
   wl_client_add_resource (wayland_client, &surface->wayland_surface.resource);
 
-  surface->surface_destroy_listener.func = surface_destroy_callback;
-  wl_list_insert (surface->wayland_surface.resource.destroy_listener_list.prev,
-                  &surface->surface_destroy_listener.link);
-
   compositor->surfaces = g_list_prepend (compositor->surfaces, surface);
+}
+
+static void
+tws_region_destroy (struct wl_client *client,
+                    struct wl_resource *resource)
+{
+  wl_resource_destroy (resource);
+}
+
+static void
+tws_region_add (struct wl_client *client,
+                struct wl_resource *resource,
+                gint32 x,
+                gint32 y,
+                gint32 width,
+                gint32 height)
+{
+  TWSRegion *region = resource->data;
+  cairo_rectangle_int_t rectangle = { x, y, width, height };
+
+  cairo_region_union_rectangle (region->region, &rectangle);
+}
+
+static void
+tws_region_subtract (struct wl_client *client,
+                     struct wl_resource *resource,
+                     gint32 x,
+                     gint32 y,
+                     gint32 width,
+                     gint32 height)
+{
+  TWSRegion *region = resource->data;
+  cairo_rectangle_int_t rectangle = { x, y, width, height };
+
+  cairo_region_subtract_rectangle (region->region, &rectangle);
+}
+
+const struct wl_region_interface tws_region_interface = {
+  tws_region_destroy,
+  tws_region_add,
+  tws_region_subtract
+};
+
+static void
+tws_region_resource_destroy_cb (struct wl_resource *resource)
+{
+  TWSRegion *region = resource->data;
+
+  cairo_region_destroy (region->region);
+  g_slice_free (TWSRegion, region);
+}
+
+static void
+tws_compositor_create_region (struct wl_client *wayland_client,
+                              struct wl_resource *compositor_resource,
+                              uint32_t id)
+{
+  TWSRegion *region = g_slice_new0 (TWSRegion);
+
+  region->resource.destroy =
+    tws_region_resource_destroy_cb;
+  region->resource.object.id = id;
+  region->resource.object.interface = &wl_region_interface;
+  region->resource.object.implementation =
+          (void (**)(void)) &tws_region_interface;
+  region->resource.data = region;
+
+  region->region = cairo_region_create ();
+
+  wl_client_add_resource (wayland_client, &region->resource);
 }
 
 static void
@@ -537,6 +663,7 @@ tws_compositor_create_output (TWSCompositor *compositor,
 
 const static struct wl_compositor_interface tws_compositor_interface = {
   tws_compositor_create_surface,
+  tws_compositor_create_region
 };
 
 static void
@@ -544,14 +671,14 @@ paint_finished_cb (ClutterActor *self, void *user_data)
 {
   TWSCompositor *compositor = user_data;
 
-  while (!g_queue_is_empty (&compositor->frame_callbacks))
+  while (!wl_list_empty (&compositor->frame_callbacks))
     {
       TWSFrameCallback *callback =
-        g_queue_peek_head (&compositor->frame_callbacks);
+        wl_container_of (compositor->frame_callbacks.next, callback, link);
 
       wl_resource_post_event (&callback->resource,
                               WL_CALLBACK_DONE, get_time ());
-      wl_resource_destroy (&callback->resource, 0);
+      wl_resource_destroy (&callback->resource);
     }
 }
 
@@ -568,18 +695,25 @@ compositor_bind (struct wl_client *client,
 }
 
 static void
-shell_surface_move(struct wl_client *client,
-                   struct wl_resource *resource,
-                   struct wl_resource *input_resource,
-                   guint32 time)
+shell_surface_pong (struct wl_client *client,
+                    struct wl_resource *resource,
+                    guint32 serial)
+{
+}
+
+static void
+shell_surface_move (struct wl_client *client,
+                    struct wl_resource *resource,
+                    struct wl_resource *seat,
+                    guint32 serial)
 {
 }
 
 static void
 shell_surface_resize (struct wl_client *client,
                       struct wl_resource *resource,
-                      struct wl_resource *input_resource,
-                      guint32 time,
+                      struct wl_resource *seat,
+                      guint32 serial,
                       guint32 edges)
 {
 }
@@ -593,7 +727,7 @@ shell_surface_set_toplevel (struct wl_client *client,
 static void
 shell_surface_set_transient (struct wl_client *client,
                              struct wl_resource *resource,
-                             struct wl_resource *parent_resource,
+                             struct wl_resource *parent,
                              int x,
                              int y,
                              guint32 flags)
@@ -602,31 +736,70 @@ shell_surface_set_transient (struct wl_client *client,
 
 static void
 shell_surface_set_fullscreen (struct wl_client *client,
-                              struct wl_resource *resource)
+                              struct wl_resource *resource,
+                              guint32 method,
+                              guint32 framerate,
+                              struct wl_resource *output)
+{
+}
+
+static void
+shell_surface_set_popup (struct wl_client *client,
+                         struct wl_resource *resource,
+                         struct wl_resource *seat,
+                         guint32 serial,
+                         struct wl_resource *parent,
+                         gint32 x,
+                         gint32 y,
+                         guint32 flags)
+{
+}
+
+static void
+shell_surface_set_maximized (struct wl_client *client,
+                             struct wl_resource *resource,
+                             struct wl_resource *output)
+{
+}
+
+static void
+shell_surface_set_title (struct wl_client *client,
+                         struct wl_resource *resource,
+                         const char *title)
+{
+}
+
+static void
+shell_surface_set_class (struct wl_client *client,
+                         struct wl_resource *resource,
+                         const char *class_)
 {
 }
 
 static const struct wl_shell_surface_interface tws_shell_surface_interface =
 {
+  shell_surface_pong,
   shell_surface_move,
   shell_surface_resize,
   shell_surface_set_toplevel,
   shell_surface_set_transient,
-  shell_surface_set_fullscreen
+  shell_surface_set_fullscreen,
+  shell_surface_set_popup,
+  shell_surface_set_maximized,
+  shell_surface_set_title,
+  shell_surface_set_class
 };
 
 static void
 shell_handle_surface_destroy (struct wl_listener *listener,
-                              struct wl_resource *resource,
-                              guint32 time)
+                              void *data)
 {
-  TWSShellSurface *shell_surface = container_of (listener,
-                                                 TWSShellSurface,
-                                                 surface_destroy_listener);
+  TWSShellSurface *shell_surface =
+    wl_container_of (listener, shell_surface, surface_destroy_listener);
 
   shell_surface->surface->has_shell_surface = FALSE;
   shell_surface->surface = NULL;
-  wl_resource_destroy (&shell_surface->resource, time);
+  wl_resource_destroy (&shell_surface->resource);
 }
 
 static void
@@ -670,9 +843,9 @@ get_shell_surface (struct wl_client *client,
   shell_surface->resource.data = shell_surface;
 
   shell_surface->surface = surface;
-  shell_surface->surface_destroy_listener.func = shell_handle_surface_destroy;
-  wl_list_insert (surface->wayland_surface.resource.destroy_listener_list.prev,
-                  &shell_surface->surface_destroy_listener.link);
+  shell_surface->surface_destroy_listener.notify = shell_handle_surface_destroy;
+  wl_signal_add (&surface->wayland_surface.resource.destroy_signal,
+                 &shell_surface->surface_destroy_listener);
 
   surface->has_shell_surface = TRUE;
 
@@ -1085,7 +1258,7 @@ event_cb (ClutterActor *stage,
           const ClutterEvent *event,
           TWSCompositor *compositor)
 {
-  tws_input_device_handle_event (compositor->input_device, event);
+  tws_seat_handle_event (compositor->seat, event);
 
   /* This implements click-to-focus */
   if (event->type == CLUTTER_BUTTON_PRESS &&
@@ -1095,11 +1268,13 @@ event_cb (ClutterActor *stage,
         CLUTTER_WAYLAND_SURFACE (event->any.source);
       struct wl_surface *wl_surface =
         clutter_wayland_surface_get_surface (cw_surface);
+      struct wl_seat *seat = (struct wl_seat *) compositor->seat;
 
-      wl_input_device_set_keyboard_focus ((struct wl_input_device *)
-                                          compositor->input_device,
-                                          wl_surface,
-                                          event->any.time);
+      if (seat->keyboard)
+        {
+          wl_keyboard_set_focus (seat->keyboard, wl_surface);
+          wl_data_device_set_keyboard_focus (seat);
+        }
     }
 
   return FALSE;
@@ -1128,7 +1303,7 @@ main (int argc, char **argv)
   if (compositor.wayland_display == NULL)
     g_error ("failed to create wayland display");
 
-  g_queue_init (&compositor.frame_callbacks);
+  wl_list_init (&compositor.frame_callbacks);
 
   if (!wl_display_add_global (compositor.wayland_display,
                               &wl_compositor_interface,
@@ -1136,15 +1311,12 @@ main (int argc, char **argv)
                               compositor_bind))
     g_error ("Failed to register wayland compositor object");
 
-  compositor.wayland_shm = wl_shm_init (compositor.wayland_display,
-                                        &shm_callbacks);
-  if (!compositor.wayland_shm)
-    g_error ("Failed to allocate setup wayland shm callbacks");
+  wl_display_init_shm (compositor.wayland_display);
 
   compositor.wayland_loop =
     wl_display_get_event_loop (compositor.wayland_display);
   compositor.wayland_event_source =
-    wayland_event_source_new (compositor.wayland_loop);
+    wayland_event_source_new (compositor.wayland_display);
   g_source_attach (compositor.wayland_event_source, NULL);
 
   clutter_wayland_set_compositor_display (compositor.wayland_display);
@@ -1159,7 +1331,7 @@ main (int argc, char **argv)
 
   wl_data_device_manager_init (compositor.wayland_display);
 
-  compositor.input_device = tws_input_device_new (compositor.wayland_display);
+  compositor.seat = tws_seat_new (compositor.wayland_display);
 
   g_signal_connect (compositor.stage,
                     "event",
