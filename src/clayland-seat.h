@@ -1,5 +1,5 @@
 /*
- * test-wayland-surface
+ * Clayland
  *
  * An example Wayland compositor using Clutter
  *
@@ -19,26 +19,26 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __TWS_SEAT_H__
-#define __TWS_SEAT_H__
+#ifndef __CLAYLAND_SEAT_H__
+#define __CLAYLAND_SEAT_H__
 
 #include <wayland-server.h>
 
-typedef struct _TwsSeat TwsSeat;
+typedef struct _ClaylandSeat ClaylandSeat;
 
-TwsSeat *
-tws_seat_new (struct wl_display *display);
-
-void
-tws_seat_handle_event (TwsSeat *seat,
-                       const ClutterEvent *event);
+ClaylandSeat *
+clayland_seat_new (struct wl_display *display);
 
 void
-tws_seat_repick (TwsSeat *seat,
-                 uint32_t time,
-                 ClutterActor *actor);
+clayland_seat_handle_event (ClaylandSeat *seat,
+                            const ClutterEvent *event);
 
 void
-tws_seat_free (TwsSeat *seat);
+clayland_seat_repick (ClaylandSeat *seat,
+                      uint32_t time,
+                      ClutterActor *actor);
 
-#endif /* __TWS_SEAT_H__ */
+void
+clayland_seat_free (ClaylandSeat *seat);
+
+#endif /* __CLAYLAND_SEAT_H__ */

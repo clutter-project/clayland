@@ -12,7 +12,7 @@
 /missing
 /src/Makefile
 /src/Makefile.in
-/src/test-wayland-surface
+/src/clayland
 /src/xserver-server-protocol.h
 /src/xserver-protocol.c
 /stamp-h1

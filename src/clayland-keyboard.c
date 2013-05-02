@@ -1,5 +1,5 @@
 /*
- * test-wayland-surface
+ * Clayland
  *
  * An example Wayland compositor using Clutter
  *
@@ -29,7 +29,7 @@
 #include <unistd.h>
 #include <sys/mman.h>
 
-#include "tws-keyboard.h"
+#include "clayland-keyboard.h"
 
 static int
 create_tmpfile_cloexec (char *tmpname)
@@ -87,7 +87,7 @@ create_anonymous_file (off_t size,
 }
 
 static gboolean
-tws_xkb_info_new_keymap (TwsXkbInfo *xkb_info)
+clayland_xkb_info_new_keymap (ClaylandXkbInfo *xkb_info)
 {
   GError *error = NULL;
   char *keymap_str;
@@ -147,9 +147,9 @@ err_keymap_str:
 }
 
 static gboolean
-tws_keyboard_build_global_keymap (struct xkb_context *xkb_context,
-                                  struct xkb_rule_names *xkb_names,
-                                  TwsXkbInfo *xkb_info)
+clayland_keyboard_build_global_keymap (struct xkb_context *xkb_context,
+                                       struct xkb_rule_names *xkb_names,
+                                       ClaylandXkbInfo *xkb_info)
 {
   xkb_info->keymap = xkb_map_new_from_names (xkb_context,
                                              xkb_names,
@@ -167,15 +167,15 @@ tws_keyboard_build_global_keymap (struct xkb_context *xkb_context,
       return FALSE;
     }
 
-  if (!tws_xkb_info_new_keymap (xkb_info))
+  if (!clayland_xkb_info_new_keymap (xkb_info))
     return FALSE;
 
   return TRUE;
 }
 
 gboolean
-tws_keyboard_init (TwsKeyboard *keyboard,
-                   struct wl_display *display)
+clayland_keyboard_init (ClaylandKeyboard *keyboard,
+                        struct wl_display *display)
 {
   wl_keyboard_init (&keyboard->parent);
 
@@ -185,15 +185,15 @@ tws_keyboard_init (TwsKeyboard *keyboard,
 
   keyboard->xkb_context = xkb_context_new (0 /* flags */);
 
-  tws_keyboard_build_global_keymap (keyboard->xkb_context,
-                                    &keyboard->xkb_names,
-                                    &keyboard->xkb_info);
+  clayland_keyboard_build_global_keymap (keyboard->xkb_context,
+                                         &keyboard->xkb_names,
+                                         &keyboard->xkb_info);
 
   return TRUE;
 }
 
 static void
-tws_xkb_info_destroy (TwsXkbInfo *xkb_info)
+clayland_xkb_info_destroy (ClaylandXkbInfo *xkb_info)
 {
   if (xkb_info->keymap)
     xkb_map_unref (xkb_info->keymap);
@@ -205,51 +205,51 @@ tws_xkb_info_destroy (TwsXkbInfo *xkb_info)
 }
 
 static void
-set_modifiers (TwsKeyboard *tws_keyboard,
+set_modifiers (ClaylandKeyboard *clayland_keyboard,
                guint32 serial,
                ClutterModifierType modifier_state)
 {
-  struct wl_keyboard *keyboard = &tws_keyboard->parent;
+  struct wl_keyboard *keyboard = &clayland_keyboard->parent;
   struct wl_keyboard_grab *grab = keyboard->grab;
   uint32_t depressed_mods = 0;
   uint32_t locked_mods = 0;
 
-  if (tws_keyboard->last_modifier_state == modifier_state)
+  if (clayland_keyboard->last_modifier_state == modifier_state)
     return;
 
   if ((modifier_state & CLUTTER_SHIFT_MASK) &&
-      tws_keyboard->xkb_info.shift_mod != XKB_MOD_INVALID)
-    depressed_mods |= (1 << tws_keyboard->xkb_info.shift_mod);
+      clayland_keyboard->xkb_info.shift_mod != XKB_MOD_INVALID)
+    depressed_mods |= (1 << clayland_keyboard->xkb_info.shift_mod);
 
   if ((modifier_state & CLUTTER_LOCK_MASK) &&
-      tws_keyboard->xkb_info.caps_mod != XKB_MOD_INVALID)
-    locked_mods |= (1 << tws_keyboard->xkb_info.caps_mod);
+      clayland_keyboard->xkb_info.caps_mod != XKB_MOD_INVALID)
+    locked_mods |= (1 << clayland_keyboard->xkb_info.caps_mod);
 
   if ((modifier_state & CLUTTER_CONTROL_MASK) &&
-      tws_keyboard->xkb_info.ctrl_mod != XKB_MOD_INVALID)
-    depressed_mods |= (1 << tws_keyboard->xkb_info.ctrl_mod);
+      clayland_keyboard->xkb_info.ctrl_mod != XKB_MOD_INVALID)
+    depressed_mods |= (1 << clayland_keyboard->xkb_info.ctrl_mod);
 
   if ((modifier_state & CLUTTER_MOD1_MASK) &&
-      tws_keyboard->xkb_info.alt_mod != XKB_MOD_INVALID)
-    depressed_mods |= (1 << tws_keyboard->xkb_info.alt_mod);
+      clayland_keyboard->xkb_info.alt_mod != XKB_MOD_INVALID)
+    depressed_mods |= (1 << clayland_keyboard->xkb_info.alt_mod);
 
   if ((modifier_state & CLUTTER_MOD2_MASK) &&
-      tws_keyboard->xkb_info.mod2_mod != XKB_MOD_INVALID)
-    depressed_mods |= (1 << tws_keyboard->xkb_info.mod2_mod);
+      clayland_keyboard->xkb_info.mod2_mod != XKB_MOD_INVALID)
+    depressed_mods |= (1 << clayland_keyboard->xkb_info.mod2_mod);
 
   if ((modifier_state & CLUTTER_MOD3_MASK) &&
-      tws_keyboard->xkb_info.mod3_mod != XKB_MOD_INVALID)
-    depressed_mods |= (1 << tws_keyboard->xkb_info.mod3_mod);
+      clayland_keyboard->xkb_info.mod3_mod != XKB_MOD_INVALID)
+    depressed_mods |= (1 << clayland_keyboard->xkb_info.mod3_mod);
 
   if ((modifier_state & CLUTTER_SUPER_MASK) &&
-      tws_keyboard->xkb_info.super_mod != XKB_MOD_INVALID)
-    depressed_mods |= (1 << tws_keyboard->xkb_info.super_mod);
+      clayland_keyboard->xkb_info.super_mod != XKB_MOD_INVALID)
+    depressed_mods |= (1 << clayland_keyboard->xkb_info.super_mod);
 
   if ((modifier_state & CLUTTER_MOD5_MASK) &&
-      tws_keyboard->xkb_info.mod5_mod != XKB_MOD_INVALID)
-    depressed_mods |= (1 << tws_keyboard->xkb_info.mod5_mod);
+      clayland_keyboard->xkb_info.mod5_mod != XKB_MOD_INVALID)
+    depressed_mods |= (1 << clayland_keyboard->xkb_info.mod5_mod);
 
-  tws_keyboard->last_modifier_state = modifier_state;
+  clayland_keyboard->last_modifier_state = modifier_state;
 
   grab->interface->modifiers (grab,
                               serial,
@@ -260,10 +260,10 @@ set_modifiers (TwsKeyboard *tws_keyboard,
 }
 
 void
-tws_keyboard_handle_event (TwsKeyboard *tws_keyboard,
-                           const ClutterKeyEvent *event)
+clayland_keyboard_handle_event (ClaylandKeyboard *clayland_keyboard,
+                                const ClutterKeyEvent *event)
 {
-  struct wl_keyboard *keyboard = &tws_keyboard->parent;
+  struct wl_keyboard *keyboard = &clayland_keyboard->parent;
   gboolean state = event->type == CLUTTER_KEY_PRESS;
   guint evdev_code;
   uint32_t serial;
@@ -317,9 +317,9 @@ tws_keyboard_handle_event (TwsKeyboard *tws_keyboard,
       (void) 0;
     }
 
-  serial = wl_display_next_serial (tws_keyboard->display);
+  serial = wl_display_next_serial (clayland_keyboard->display);
 
-  set_modifiers (tws_keyboard, serial, event->modifier_state);
+  set_modifiers (clayland_keyboard, serial, event->modifier_state);
 
   keyboard->grab->interface->key (keyboard->grab,
                                   event->time,
@@ -328,7 +328,7 @@ tws_keyboard_handle_event (TwsKeyboard *tws_keyboard,
 }
 
 void
-tws_keyboard_release (TwsKeyboard *keyboard)
+clayland_keyboard_release (ClaylandKeyboard *keyboard)
 {
   g_free ((char *) keyboard->xkb_names.rules);
   g_free ((char *) keyboard->xkb_names.model);
@@ -336,7 +336,7 @@ tws_keyboard_release (TwsKeyboard *keyboard)
   g_free ((char *) keyboard->xkb_names.variant);
   g_free ((char *) keyboard->xkb_names.options);
 
-  tws_xkb_info_destroy (&keyboard->xkb_info);
+  clayland_xkb_info_destroy (&keyboard->xkb_info);
   xkb_context_unref (keyboard->xkb_context);
 
   wl_keyboard_release (&keyboard->parent);

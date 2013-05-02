@@ -1,5 +1,5 @@
 /*
- * test-wayland-surface
+ * Clayland
  *
  * An example Wayland compositor using Clutter
  *
@@ -19,20 +19,20 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __TWS_COMPOSITOR_H__
-#define __TWS_COMPOSITOR_H__
+#ifndef __CLAYLAND_COMPOSITOR_H__
+#define __CLAYLAND_COMPOSITOR_H__
 
 #include <glib.h>
 #include <wayland-server.h>
 #include <clutter/clutter.h>
 #include <cairo.h>
 
-typedef struct _TWSCompositor TWSCompositor;
+typedef struct _ClaylandCompositor ClaylandCompositor;
 
 typedef struct
 {
   struct wl_surface wayland_surface;
-  TWSCompositor *compositor;
+  ClaylandCompositor *compositor;
   int x;
   int y;
   struct wl_buffer *buffer;
@@ -55,6 +55,6 @@ typedef struct
     /* wl_surface.frame */
     struct wl_list frame_callback_list;
   } pending;
-} TWSSurface;
+} ClaylandSurface;
 
-#endif /* __TWS_COMPOSITOR_H__ */
+#endif /* __CLAYLAND_COMPOSITOR_H__ */

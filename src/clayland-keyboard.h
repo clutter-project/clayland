@@ -1,5 +1,5 @@
 /*
- * test-wayland-surface
+ * Clayland
  *
  * An example Wayland compositor using Clutter
  *
@@ -19,8 +19,8 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __TWS_KEYBOARD_H__
-#define __TWS_KEYBOARD_H__
+#ifndef __CLAYLAND_KEYBOARD_H__
+#define __CLAYLAND_KEYBOARD_H__
 
 #include <clutter/clutter.h>
 #include <wayland-server.h>
@@ -41,7 +41,7 @@ typedef struct
   xkb_mod_index_t mod3_mod;
   xkb_mod_index_t super_mod;
   xkb_mod_index_t mod5_mod;
-} TwsXkbInfo;
+} ClaylandXkbInfo;
 
 typedef struct
 {
@@ -51,24 +51,24 @@ typedef struct
 
   struct xkb_context *xkb_context;
 
-  TwsXkbInfo xkb_info;
+  ClaylandXkbInfo xkb_info;
   struct xkb_rule_names xkb_names;
 
   struct wl_keyboard_grab input_method_grab;
   struct wl_resource *input_method_resource;
 
   ClutterModifierType last_modifier_state;
-} TwsKeyboard;
+} ClaylandKeyboard;
 
 gboolean
-tws_keyboard_init (TwsKeyboard *keyboard,
-                   struct wl_display *display);
+clayland_keyboard_init (ClaylandKeyboard *keyboard,
+                        struct wl_display *display);
 
 void
-tws_keyboard_handle_event (TwsKeyboard *keyboard,
-                           const ClutterKeyEvent *event);
+clayland_keyboard_handle_event (ClaylandKeyboard *keyboard,
+                                const ClutterKeyEvent *event);
 
 void
-tws_keyboard_release (TwsKeyboard *keyboard);
+clayland_keyboard_release (ClaylandKeyboard *keyboard);
 
-#endif /* __TWS_KEYBOARD_H__ */
+#endif /* __CLAYLAND_KEYBOARD_H__ */

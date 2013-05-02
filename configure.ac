@@ -1,4 +1,4 @@
-AC_INIT([test-wayland-surface], 0.1)
+AC_INIT([clayland], 0.1)
 
 AM_CONFIG_HEADER([config.h])
 AC_GNU_SOURCE

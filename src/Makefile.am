@@ -1,23 +1,23 @@
-bin_PROGRAMS = test-wayland-surface
+bin_PROGRAMS = clayland
 
 INCLUDES = \
 	@CLUTTER_CFLAGS@ \
 	@COGL_CFLAGS@ \
 	-DXWAYLAND_PATH='"@XWAYLAND_PATH@"'
 
-test_wayland_surface_SOURCES = \
-	test-wayland-surface.c \
-	tws-compositor.h \
-	tws-keyboard.c \
-	tws-keyboard.h \
-	tws-seat.c \
-	tws-seat.h \
+clayland_SOURCES = \
+	clayland.c \
+	clayland-compositor.h \
+	clayland-keyboard.c \
+	clayland-keyboard.h \
+	clayland-seat.c \
+	clayland-seat.h \
 	xserver-protocol.c \
 	xserver-server-protocol.h
 
-test-wayland-surface.c : xserver-server-protocol.h
+clayland.c : xserver-server-protocol.h
 
-test_wayland_surface_LDADD = \
+clayland_LDADD = \
 	@CLUTTER_LIBS@ \
 	@COGL_LIBS@
 

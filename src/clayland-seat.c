@@ -1,5 +1,5 @@
 /*
- * test-wayland-surface
+ * Clayland
  *
  * An example Wayland compositor using Clutter
  *
@@ -27,20 +27,20 @@
 #include <linux/input.h>
 #include <stdlib.h>
 #include <string.h>
-#include "tws-seat.h"
-#include "tws-compositor.h"
-#include "tws-keyboard.h"
+#include "clayland-seat.h"
+#include "clayland-compositor.h"
+#include "clayland-keyboard.h"
 
-struct _TwsSeat
+struct _ClaylandSeat
 {
   struct wl_seat parent;
 
   struct wl_pointer pointer;
-  TwsKeyboard keyboard;
+  ClaylandKeyboard keyboard;
 
   struct wl_display *display;
 
-  TWSSurface *sprite;
+  ClaylandSurface *sprite;
   int hotspot_x, hotspot_y;
   struct wl_listener sprite_destroy_listener;
 
@@ -55,7 +55,7 @@ unbind_resource (struct wl_resource *resource)
 }
 
 static void
-transform_stage_point_fixed (TWSSurface *surface,
+transform_stage_point_fixed (ClaylandSurface *surface,
                              wl_fixed_t x,
                              wl_fixed_t y,
                              wl_fixed_t *sx,
@@ -73,7 +73,7 @@ transform_stage_point_fixed (TWSSurface *surface,
 }
 
 static void
-pointer_unmap_sprite (TwsSeat *seat)
+pointer_unmap_sprite (ClaylandSeat *seat)
 {
   if (seat->sprite)
     {
@@ -91,8 +91,8 @@ pointer_set_cursor (struct wl_client *client,
                     struct wl_resource *surface_resource,
                     int32_t x, int32_t y)
 {
-  TwsSeat *seat = resource->data;
-  TWSSurface *surface;
+  ClaylandSeat *seat = resource->data;
+  ClaylandSurface *surface;
 
   surface = surface_resource ? surface_resource->data : NULL;
 
@@ -127,7 +127,7 @@ seat_get_pointer (struct wl_client *client,
                   struct wl_resource *resource,
                   uint32_t id)
 {
-  TwsSeat *seat = resource->data;
+  ClaylandSeat *seat = resource->data;
   struct wl_resource *cr;
 
   if (!seat->parent.pointer)
@@ -141,10 +141,10 @@ seat_get_pointer (struct wl_client *client,
   if (seat->parent.pointer->focus &&
       seat->parent.pointer->focus->resource.client == client)
     {
-      TWSSurface *surface;
+      ClaylandSurface *surface;
       wl_fixed_t sx, sy;
 
-      surface = (TWSSurface *) seat->parent.pointer->focus;
+      surface = (ClaylandSurface *) seat->parent.pointer->focus;
       transform_stage_point_fixed (surface,
                                    seat->parent.pointer->x,
                                    seat->parent.pointer->y,
@@ -160,7 +160,7 @@ seat_get_keyboard (struct wl_client *client,
                    struct wl_resource *resource,
                    uint32_t id)
 {
-  TwsSeat *seat = resource->data;
+  ClaylandSeat *seat = resource->data;
   struct wl_resource *cr;
 
   if (!seat->parent.keyboard)
@@ -225,22 +225,23 @@ bind_seat (struct wl_client *client,
 static void
 pointer_handle_sprite_destroy (struct wl_listener *listener, void *data)
 {
-  TwsSeat *seat = wl_container_of (listener, seat, sprite_destroy_listener);
+  ClaylandSeat *seat =
+    wl_container_of (listener, seat, sprite_destroy_listener);
 
   seat->sprite = NULL;
 }
 
-TwsSeat *
-tws_seat_new (struct wl_display *display)
+ClaylandSeat *
+clayland_seat_new (struct wl_display *display)
 {
-  TwsSeat *seat = g_new (TwsSeat, 1);
+  ClaylandSeat *seat = g_new (ClaylandSeat, 1);
 
   wl_seat_init (&seat->parent);
 
   wl_pointer_init (&seat->pointer);
   wl_seat_set_pointer (&seat->parent, &seat->pointer);
 
-  tws_keyboard_init (&seat->keyboard, display);
+  clayland_keyboard_init (&seat->keyboard, display);
   wl_seat_set_keyboard (&seat->parent, &seat->keyboard.parent);
 
   seat->display = display;
@@ -258,7 +259,7 @@ tws_seat_new (struct wl_display *display)
 }
 
 static void
-notify_motion (TwsSeat *seat,
+notify_motion (ClaylandSeat *seat,
                const ClutterEvent *event)
 {
   struct wl_pointer *pointer = seat->parent.pointer;
@@ -268,7 +269,7 @@ notify_motion (TwsSeat *seat,
   pointer->x = wl_fixed_from_double (x);
   pointer->y = wl_fixed_from_double (y);
 
-  tws_seat_repick (seat,
+  clayland_seat_repick (seat,
                    clutter_event_get_time (event),
                    clutter_event_get_source (event));
 
@@ -279,14 +280,14 @@ notify_motion (TwsSeat *seat,
 }
 
 static void
-handle_motion_event (TwsSeat *seat,
+handle_motion_event (ClaylandSeat *seat,
                      const ClutterMotionEvent *event)
 {
   notify_motion (seat, (const ClutterEvent *) event);
 }
 
 static void
-handle_button_event (TwsSeat *seat,
+handle_button_event (ClaylandSeat *seat,
                      const ClutterButtonEvent *event)
 {
   struct wl_pointer *pointer = seat->parent.pointer;
@@ -334,8 +335,8 @@ handle_button_event (TwsSeat *seat,
 }
 
 void
-tws_seat_handle_event (TwsSeat *seat,
-                       const ClutterEvent *event)
+clayland_seat_handle_event (ClaylandSeat *seat,
+                            const ClutterEvent *event)
 {
   switch (event->type)
     {
@@ -352,7 +353,7 @@ tws_seat_handle_event (TwsSeat *seat,
 
     case CLUTTER_KEY_PRESS:
     case CLUTTER_KEY_RELEASE:
-      tws_keyboard_handle_event (&seat->keyboard,
+      clayland_keyboard_handle_event (&seat->keyboard,
                                  (const ClutterKeyEvent *) event);
       break;
 
@@ -367,13 +368,13 @@ tws_seat_handle_event (TwsSeat *seat,
    case Clutter will have already performed a pick so we can avoid
    redundantly doing another one */
 void
-tws_seat_repick (TwsSeat *seat,
-                 uint32_t time,
-                 ClutterActor *actor)
+clayland_seat_repick (ClaylandSeat *seat,
+                      uint32_t time,
+                      ClutterActor *actor)
 {
   struct wl_pointer *pointer = seat->parent.pointer;
   struct wl_surface *surface;
-  TWSSurface *focus;
+  ClaylandSurface *focus;
 
   if (actor == NULL && seat->current_stage)
     {
@@ -416,7 +417,7 @@ tws_seat_repick (TwsSeat *seat,
       pointer->current = surface;
     }
 
-  focus = (TWSSurface *) pointer->grab->focus;
+  focus = (ClaylandSurface *) pointer->grab->focus;
   if (focus)
     {
       float ax, ay;
@@ -431,13 +432,13 @@ tws_seat_repick (TwsSeat *seat,
 }
 
 void
-tws_seat_free (TwsSeat *seat)
+clayland_seat_free (ClaylandSeat *seat)
 {
   pointer_unmap_sprite (seat);
 
   wl_pointer_release (&seat->pointer);
-  tws_keyboard_release (&seat->keyboard);
+  clayland_keyboard_release (&seat->keyboard);
   wl_seat_release (&seat->parent);
 
-  g_slice_free (TwsSeat, seat);
+  g_slice_free (ClaylandSeat, seat);
 }
