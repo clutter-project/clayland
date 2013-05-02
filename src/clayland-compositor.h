@@ -44,6 +44,7 @@ typedef struct
   struct
   {
     /* wl_surface.attach */
+    gboolean newly_attached;
     struct wl_buffer *buffer;
     struct wl_listener buffer_destroy_listener;
     int32_t sx;
