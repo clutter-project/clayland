@@ -27,6 +27,8 @@
 
 #include <xkbcommon/xkbcommon.h>
 
+#include "wl-input.h"
+
 typedef struct
 {
   struct xkb_keymap *keymap;

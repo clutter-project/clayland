@@ -13,7 +13,10 @@ clayland_SOURCES = \
 	clayland-seat.c \
 	clayland-seat.h \
 	xserver-protocol.c \
-	xserver-server-protocol.h
+	xserver-server-protocol.h \
+	wl-data-device.c \
+	wl-input.c \
+	wl-input.h
 
 clayland.c : xserver-server-protocol.h
 

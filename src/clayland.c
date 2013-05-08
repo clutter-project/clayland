@@ -43,6 +43,7 @@
 #include "xserver-server-protocol.h"
 #include "clayland-compositor.h"
 #include "clayland-seat.h"
+#include "wl-input.h"
 
 typedef struct
 {
