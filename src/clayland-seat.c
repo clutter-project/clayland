@@ -33,9 +33,9 @@
 
 struct _ClaylandSeat
 {
-  struct wl_seat parent;
+  struct cwl_seat parent;
 
-  struct wl_pointer pointer;
+  struct cwl_pointer pointer;
   ClaylandKeyboard keyboard;
 
   struct wl_display *display;
@@ -149,9 +149,9 @@ seat_get_pointer (struct wl_client *client,
                                    seat->parent.pointer->x,
                                    seat->parent.pointer->y,
                                    &sx, &sy);
-      wl_pointer_set_focus (seat->parent.pointer,
-                            seat->parent.pointer->focus,
-                            sx, sy);
+      cwl_pointer_set_focus (seat->parent.pointer,
+                             seat->parent.pointer->focus,
+                             sx, sy);
     }
 }
 
@@ -178,9 +178,9 @@ seat_get_keyboard (struct wl_client *client,
   if (seat->parent.keyboard->focus &&
       seat->parent.keyboard->focus->resource.client == client)
     {
-      wl_keyboard_set_focus (seat->parent.keyboard,
-                             seat->parent.keyboard->focus);
-      wl_data_device_set_keyboard_focus (&seat->parent);
+      cwl_keyboard_set_focus (seat->parent.keyboard,
+                              seat->parent.keyboard->focus);
+      cwl_data_device_set_keyboard_focus (&seat->parent);
     }
 }
 
@@ -206,7 +206,7 @@ bind_seat (struct wl_client *client,
            guint32 version,
            guint32 id)
 {
-  struct wl_seat *seat = data;
+  struct cwl_seat *seat = data;
   struct wl_resource *resource;
 
   resource = wl_client_add_object (client,
@@ -236,13 +236,13 @@ clayland_seat_new (struct wl_display *display)
 {
   ClaylandSeat *seat = g_new (ClaylandSeat, 1);
 
-  wl_seat_init (&seat->parent);
+  cwl_seat_init (&seat->parent);
 
-  wl_pointer_init (&seat->pointer);
-  wl_seat_set_pointer (&seat->parent, &seat->pointer);
+  cwl_pointer_init (&seat->pointer);
+  cwl_seat_set_pointer (&seat->parent, &seat->pointer);
 
   clayland_keyboard_init (&seat->keyboard, display);
-  wl_seat_set_keyboard (&seat->parent, &seat->keyboard.parent);
+  cwl_seat_set_keyboard (&seat->parent, &seat->keyboard.parent);
 
   seat->display = display;
 
@@ -262,7 +262,7 @@ static void
 notify_motion (ClaylandSeat *seat,
                const ClutterEvent *event)
 {
-  struct wl_pointer *pointer = seat->parent.pointer;
+  struct cwl_pointer *pointer = seat->parent.pointer;
   float x, y;
 
   clutter_event_get_coords (event, &x, &y);
@@ -290,7 +290,7 @@ static void
 handle_button_event (ClaylandSeat *seat,
                      const ClutterButtonEvent *event)
 {
-  struct wl_pointer *pointer = seat->parent.pointer;
+  struct cwl_pointer *pointer = seat->parent.pointer;
   gboolean state = event->type == CLUTTER_BUTTON_PRESS;
   uint32_t button;
 
@@ -372,7 +372,7 @@ clayland_seat_repick (ClaylandSeat *seat,
                       uint32_t time,
                       ClutterActor *actor)
 {
-  struct wl_pointer *pointer = seat->parent.pointer;
+  struct cwl_pointer *pointer = seat->parent.pointer;
   struct wl_surface *surface;
   ClaylandSurface *focus;
 
@@ -409,7 +409,7 @@ clayland_seat_repick (ClaylandSeat *seat,
 
   if (surface != pointer->current)
     {
-      const struct wl_pointer_grab_interface *interface =
+      const struct cwl_pointer_grab_interface *interface =
         pointer->grab->interface;
       interface->focus (pointer->grab,
                         surface,
@@ -436,9 +436,9 @@ clayland_seat_free (ClaylandSeat *seat)
 {
   pointer_unmap_sprite (seat);
 
-  wl_pointer_release (&seat->pointer);
+  cwl_pointer_release (&seat->pointer);
   clayland_keyboard_release (&seat->keyboard);
-  wl_seat_release (&seat->parent);
+  cwl_seat_release (&seat->parent);
 
   g_slice_free (ClaylandSeat, seat);
 }

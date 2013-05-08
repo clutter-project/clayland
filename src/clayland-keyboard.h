@@ -47,7 +47,7 @@ typedef struct
 
 typedef struct
 {
-  struct wl_keyboard parent;
+  struct cwl_keyboard parent;
 
   struct wl_display *display;
 
@@ -56,7 +56,7 @@ typedef struct
   ClaylandXkbInfo xkb_info;
   struct xkb_rule_names xkb_names;
 
-  struct wl_keyboard_grab input_method_grab;
+  struct cwl_keyboard_grab input_method_grab;
   struct wl_resource *input_method_resource;
 
   ClutterModifierType last_modifier_state;

@@ -201,7 +201,7 @@ gboolean
 clayland_keyboard_init (ClaylandKeyboard *keyboard,
                         struct wl_display *display)
 {
-  wl_keyboard_init (&keyboard->parent);
+  cwl_keyboard_init (&keyboard->parent);
 
   keyboard->display = display;
 
@@ -233,8 +233,8 @@ set_modifiers (ClaylandKeyboard *clayland_keyboard,
                guint32 serial,
                ClutterModifierType modifier_state)
 {
-  struct wl_keyboard *keyboard = &clayland_keyboard->parent;
-  struct wl_keyboard_grab *grab = keyboard->grab;
+  struct cwl_keyboard *keyboard = &clayland_keyboard->parent;
+  struct cwl_keyboard_grab *grab = keyboard->grab;
   uint32_t depressed_mods = 0;
   uint32_t locked_mods = 0;
 
@@ -287,7 +287,7 @@ void
 clayland_keyboard_handle_event (ClaylandKeyboard *clayland_keyboard,
                                 const ClutterKeyEvent *event)
 {
-  struct wl_keyboard *keyboard = &clayland_keyboard->parent;
+  struct cwl_keyboard *keyboard = &clayland_keyboard->parent;
   gboolean state = event->type == CLUTTER_KEY_PRESS;
   guint evdev_code;
   uint32_t serial;
@@ -363,5 +363,5 @@ clayland_keyboard_release (ClaylandKeyboard *keyboard)
   clayland_xkb_info_destroy (&keyboard->xkb_info);
   xkb_context_unref (keyboard->xkb_context);
 
-  wl_keyboard_release (&keyboard->parent);
+  cwl_keyboard_release (&keyboard->parent);
 }
