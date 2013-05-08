@@ -229,7 +229,7 @@ static const struct cwl_keyboard_grab_interface
   default_grab_modifiers,
 };
 
-WL_EXPORT void
+void
 cwl_pointer_init (struct cwl_pointer *pointer)
 {
   memset (pointer, 0, sizeof *pointer);
@@ -245,7 +245,7 @@ cwl_pointer_init (struct cwl_pointer *pointer)
   pointer->y = wl_fixed_from_int (100);
 }
 
-WL_EXPORT void
+void
 cwl_pointer_release (struct cwl_pointer *pointer)
 {
   /* XXX: What about pointer->resource_list? */
@@ -253,7 +253,7 @@ cwl_pointer_release (struct cwl_pointer *pointer)
     wl_list_remove (&pointer->focus_listener.link);
 }
 
-WL_EXPORT void
+void
 cwl_keyboard_init (struct cwl_keyboard *keyboard)
 {
   memset (keyboard, 0, sizeof *keyboard);
@@ -266,7 +266,7 @@ cwl_keyboard_init (struct cwl_keyboard *keyboard)
   wl_signal_init (&keyboard->focus_signal);
 }
 
-WL_EXPORT void
+void
 cwl_keyboard_release (struct cwl_keyboard *keyboard)
 {
   /* XXX: What about keyboard->resource_list? */
@@ -275,7 +275,7 @@ cwl_keyboard_release (struct cwl_keyboard *keyboard)
   wl_array_release (&keyboard->keys);
 }
 
-WL_EXPORT void
+void
 cwl_touch_init (struct cwl_touch *touch)
 {
   memset (touch, 0, sizeof *touch);
@@ -287,7 +287,7 @@ cwl_touch_init (struct cwl_touch *touch)
   wl_signal_init (&touch->focus_signal);
 }
 
-WL_EXPORT void
+void
 cwl_touch_release (struct cwl_touch *touch)
 {
   /* XXX: What about touch->resource_list? */
@@ -295,7 +295,7 @@ cwl_touch_release (struct cwl_touch *touch)
     wl_list_remove (&touch->focus_listener.link);
 }
 
-WL_EXPORT void
+void
 cwl_seat_init (struct cwl_seat *seat)
 {
   memset (seat, 0, sizeof *seat);
@@ -309,7 +309,7 @@ cwl_seat_init (struct cwl_seat *seat)
   wl_signal_init (&seat->drag_icon_signal);
 }
 
-WL_EXPORT void
+void
 cwl_seat_release (struct cwl_seat *seat)
 {
   wl_signal_emit (&seat->destroy_signal, seat);
@@ -339,7 +339,7 @@ seat_send_updated_caps (struct cwl_seat *seat)
     wl_seat_send_capabilities (r, caps);
 }
 
-WL_EXPORT void
+void
 cwl_seat_set_pointer (struct cwl_seat *seat, struct cwl_pointer *pointer)
 {
   if (pointer && (seat->pointer || pointer->seat))
@@ -354,7 +354,7 @@ cwl_seat_set_pointer (struct cwl_seat *seat, struct cwl_pointer *pointer)
   seat_send_updated_caps (seat);
 }
 
-WL_EXPORT void
+void
 cwl_seat_set_keyboard (struct cwl_seat *seat, struct cwl_keyboard *keyboard)
 {
   if (keyboard && (seat->keyboard || keyboard->seat))
@@ -369,7 +369,7 @@ cwl_seat_set_keyboard (struct cwl_seat *seat, struct cwl_keyboard *keyboard)
   seat_send_updated_caps (seat);
 }
 
-WL_EXPORT void
+void
 cwl_seat_set_touch (struct cwl_seat *seat, struct cwl_touch *touch)
 {
   if (touch && (seat->touch || touch->seat))
@@ -384,7 +384,7 @@ cwl_seat_set_touch (struct cwl_seat *seat, struct cwl_touch *touch)
   seat_send_updated_caps (seat);
 }
 
-WL_EXPORT void
+void
 cwl_pointer_set_focus (struct cwl_pointer *pointer, struct wl_surface *surface,
                       wl_fixed_t sx, wl_fixed_t sy)
 {
@@ -431,7 +431,7 @@ cwl_pointer_set_focus (struct cwl_pointer *pointer, struct wl_surface *surface,
   wl_signal_emit (&pointer->focus_signal, pointer);
 }
 
-WL_EXPORT void
+void
 cwl_keyboard_set_focus (struct cwl_keyboard *keyboard,
                        struct wl_surface *surface)
 {
@@ -473,7 +473,7 @@ cwl_keyboard_set_focus (struct cwl_keyboard *keyboard,
   wl_signal_emit (&keyboard->focus_signal, keyboard);
 }
 
-WL_EXPORT void
+void
 cwl_keyboard_start_grab (struct cwl_keyboard *keyboard,
                         struct cwl_keyboard_grab *grab)
 {
@@ -483,13 +483,13 @@ cwl_keyboard_start_grab (struct cwl_keyboard *keyboard,
   /* XXX focus? */
 }
 
-WL_EXPORT void
+void
 cwl_keyboard_end_grab (struct cwl_keyboard *keyboard)
 {
   keyboard->grab = &keyboard->default_grab;
 }
 
-WL_EXPORT void
+void
 cwl_pointer_start_grab (struct cwl_pointer *pointer,
                        struct cwl_pointer_grab *grab)
 {
@@ -504,7 +504,7 @@ cwl_pointer_start_grab (struct cwl_pointer *pointer,
                       pointer->current_x, pointer->current_y);
 }
 
-WL_EXPORT void
+void
 cwl_pointer_end_grab (struct cwl_pointer *pointer)
 {
   const struct cwl_pointer_grab_interface *interface;
@@ -524,7 +524,7 @@ current_surface_destroy (struct wl_listener *listener, void *data)
   pointer->current = NULL;
 }
 
-WL_EXPORT void
+void
 cwl_pointer_set_current (struct cwl_pointer *pointer,
                          struct wl_surface *surface)
 {
@@ -541,14 +541,14 @@ cwl_pointer_set_current (struct cwl_pointer *pointer,
   pointer->current_listener.notify = current_surface_destroy;
 }
 
-WL_EXPORT void
+void
 cwl_touch_start_grab (struct cwl_touch *touch, struct cwl_touch_grab *grab)
 {
   touch->grab = grab;
   grab->touch = touch;
 }
 
-WL_EXPORT void
+void
 cwl_touch_end_grab (struct cwl_touch *touch)
 {
   touch->grab = &touch->default_grab;

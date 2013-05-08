@@ -346,7 +346,7 @@ destroy_selection_data_source (struct wl_listener *listener, void *data)
   wl_signal_emit (&seat->selection_signal, seat);
 }
 
-WL_EXPORT void
+void
 cwl_seat_set_selection (struct cwl_seat *seat, struct cwl_data_source *source,
                         uint32_t serial)
 {
@@ -507,7 +507,7 @@ bind_manager (struct wl_client *client,
                         &manager_interface, id, NULL);
 }
 
-WL_EXPORT void
+void
 cwl_data_device_set_keyboard_focus (struct cwl_seat *seat)
 {
   struct wl_resource *data_device, *focus, *offer;
@@ -532,7 +532,7 @@ cwl_data_device_set_keyboard_focus (struct cwl_seat *seat)
     }
 }
 
-WL_EXPORT int
+int
 cwl_data_device_manager_init (struct wl_display *display)
 {
   if (wl_display_add_global (display,
