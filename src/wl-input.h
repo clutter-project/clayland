@@ -28,7 +28,6 @@
 struct cwl_seat;
 struct cwl_pointer;
 struct cwl_keyboard;
-struct cwl_touch;
 
 struct cwl_pointer_grab;
 struct cwl_pointer_grab_interface
@@ -65,23 +64,6 @@ struct cwl_keyboard_grab
   struct cwl_keyboard *keyboard;
   struct wl_surface *focus;
   uint32_t key;
-};
-
-struct cwl_touch_grab;
-struct cwl_touch_grab_interface
-{
-  void (*down) (struct cwl_touch_grab * grab,
-                uint32_t time, int touch_id, wl_fixed_t sx, wl_fixed_t sy);
-  void (*up) (struct cwl_touch_grab * grab, uint32_t time, int touch_id);
-  void (*motion) (struct cwl_touch_grab * grab,
-                  uint32_t time, int touch_id, wl_fixed_t sx, wl_fixed_t sy);
-};
-
-struct cwl_touch_grab
-{
-  const struct cwl_touch_grab_interface *interface;
-  struct cwl_touch *touch;
-  struct wl_surface *focus;
 };
 
 struct cwl_data_offer
@@ -157,24 +139,6 @@ struct cwl_keyboard
   } modifiers;
 };
 
-struct cwl_touch
-{
-  struct cwl_seat *seat;
-
-  struct wl_list resource_list;
-  struct wl_surface *focus;
-  struct wl_resource *focus_resource;
-  struct wl_listener focus_listener;
-  uint32_t focus_serial;
-  struct wl_signal focus_signal;
-
-  struct cwl_touch_grab *grab;
-  struct cwl_touch_grab default_grab;
-  wl_fixed_t grab_x, grab_y;
-  uint32_t grab_serial;
-  uint32_t grab_time;
-};
-
 struct cwl_seat
 {
   struct wl_list base_resource_list;
@@ -182,7 +146,6 @@ struct cwl_seat
 
   struct cwl_pointer *pointer;
   struct cwl_keyboard *keyboard;
-  struct cwl_touch *touch;
 
   uint32_t selection_serial;
   struct cwl_data_source *selection_data_source;
@@ -209,7 +172,6 @@ void cwl_seat_release (struct cwl_seat *seat);
 void cwl_seat_set_pointer (struct cwl_seat *seat, struct cwl_pointer *pointer);
 void
 cwl_seat_set_keyboard (struct cwl_seat *seat, struct cwl_keyboard *keyboard);
-void cwl_seat_set_touch (struct cwl_seat *seat, struct cwl_touch *touch);
 
 void cwl_pointer_init (struct cwl_pointer *pointer);
 void cwl_pointer_release (struct cwl_pointer *pointer);
@@ -232,12 +194,6 @@ cwl_keyboard_set_focus (struct cwl_keyboard *keyboard,
 void cwl_keyboard_start_grab (struct cwl_keyboard *device,
                               struct cwl_keyboard_grab *grab);
 void cwl_keyboard_end_grab (struct cwl_keyboard *keyboard);
-
-void cwl_touch_init (struct cwl_touch *touch);
-void cwl_touch_release (struct cwl_touch *touch);
-void
-cwl_touch_start_grab (struct cwl_touch *device, struct cwl_touch_grab *grab);
-void cwl_touch_end_grab (struct cwl_touch *touch);
 
 void cwl_data_device_set_keyboard_focus (struct cwl_seat *seat);
 

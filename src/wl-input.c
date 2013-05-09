@@ -45,15 +45,6 @@ lose_keyboard_focus (struct wl_listener *listener, void *data)
 }
 
 static void
-lose_touch_focus (struct wl_listener *listener, void *data)
-{
-  struct cwl_touch *touch =
-    wl_container_of (listener, touch, focus_listener);
-
-  touch->focus_resource = NULL;
-}
-
-static void
 default_grab_focus (struct cwl_pointer_grab *grab,
                     struct wl_surface *surface, wl_fixed_t x, wl_fixed_t y)
 {
@@ -102,59 +93,6 @@ static const struct cwl_pointer_grab_interface default_pointer_grab_interface = 
   default_grab_focus,
   default_grab_motion,
   default_grab_button
-};
-
-static void
-default_grab_touch_down (struct cwl_touch_grab *grab,
-                         uint32_t time,
-                         int touch_id, wl_fixed_t sx, wl_fixed_t sy)
-{
-  struct cwl_touch *touch = grab->touch;
-  uint32_t serial;
-
-  if (touch->focus_resource && touch->focus)
-    {
-      struct wl_display *display =
-        wl_client_get_display (touch->focus_resource->client);
-      serial = wl_display_next_serial (display);
-      wl_touch_send_down (touch->focus_resource, serial, time,
-                          &touch->focus->resource, touch_id, sx, sy);
-    }
-}
-
-static void
-default_grab_touch_up (struct cwl_touch_grab *grab,
-                       uint32_t time, int touch_id)
-{
-  struct cwl_touch *touch = grab->touch;
-  uint32_t serial;
-
-  if (touch->focus_resource)
-    {
-      struct wl_display *display =
-        wl_client_get_display (touch->focus_resource->client);
-      serial = wl_display_next_serial (display);
-      wl_touch_send_up (touch->focus_resource, serial, time, touch_id);
-    }
-}
-
-static void
-default_grab_touch_motion (struct cwl_touch_grab *grab,
-                           uint32_t time,
-                           int touch_id, wl_fixed_t sx, wl_fixed_t sy)
-{
-  struct cwl_touch *touch = grab->touch;
-
-  if (touch->focus_resource)
-    {
-      wl_touch_send_motion (touch->focus_resource, time, touch_id, sx, sy);
-    }
-}
-
-static const struct cwl_touch_grab_interface default_touch_grab_interface = {
-  default_grab_touch_down,
-  default_grab_touch_up,
-  default_grab_touch_motion
 };
 
 static void
@@ -276,26 +214,6 @@ cwl_keyboard_release (struct cwl_keyboard *keyboard)
 }
 
 void
-cwl_touch_init (struct cwl_touch *touch)
-{
-  memset (touch, 0, sizeof *touch);
-  wl_list_init (&touch->resource_list);
-  touch->focus_listener.notify = lose_touch_focus;
-  touch->default_grab.interface = &default_touch_grab_interface;
-  touch->default_grab.touch = touch;
-  touch->grab = &touch->default_grab;
-  wl_signal_init (&touch->focus_signal);
-}
-
-void
-cwl_touch_release (struct cwl_touch *touch)
-{
-  /* XXX: What about touch->resource_list? */
-  if (touch->focus_resource)
-    wl_list_remove (&touch->focus_listener.link);
-}
-
-void
 cwl_seat_init (struct cwl_seat *seat)
 {
   memset (seat, 0, sizeof *seat);
@@ -318,8 +236,6 @@ cwl_seat_release (struct cwl_seat *seat)
     cwl_pointer_release (seat->pointer);
   if (seat->keyboard)
     cwl_keyboard_release (seat->keyboard);
-  if (seat->touch)
-    cwl_touch_release (seat->touch);
 }
 
 static void
@@ -332,8 +248,6 @@ seat_send_updated_caps (struct cwl_seat *seat)
     caps |= WL_SEAT_CAPABILITY_POINTER;
   if (seat->keyboard)
     caps |= WL_SEAT_CAPABILITY_KEYBOARD;
-  if (seat->touch)
-    caps |= WL_SEAT_CAPABILITY_TOUCH;
 
   wl_list_for_each (r, &seat->base_resource_list, link)
     wl_seat_send_capabilities (r, caps);
@@ -365,21 +279,6 @@ cwl_seat_set_keyboard (struct cwl_seat *seat, struct cwl_keyboard *keyboard)
   seat->keyboard = keyboard;
   if (keyboard)
     keyboard->seat = seat;
-
-  seat_send_updated_caps (seat);
-}
-
-void
-cwl_seat_set_touch (struct cwl_seat *seat, struct cwl_touch *touch)
-{
-  if (touch && (seat->touch || touch->seat))
-    return;                     /* XXX: error? */
-  if (!touch && !seat->touch)
-    return;
-
-  seat->touch = touch;
-  if (touch)
-    touch->seat = seat;
 
   seat_send_updated_caps (seat);
 }
@@ -539,17 +438,4 @@ cwl_pointer_set_current (struct cwl_pointer *pointer,
   wl_signal_add (&surface->resource.destroy_signal,
                  &pointer->current_listener);
   pointer->current_listener.notify = current_surface_destroy;
-}
-
-void
-cwl_touch_start_grab (struct cwl_touch *touch, struct cwl_touch_grab *grab)
-{
-  touch->grab = grab;
-  grab->touch = touch;
-}
-
-void
-cwl_touch_end_grab (struct cwl_touch *touch)
-{
-  touch->grab = &touch->default_grab;
 }
