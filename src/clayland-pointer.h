@@ -19,34 +19,32 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __CLAYLAND_KEYBOARD_H__
-#define __CLAYLAND_KEYBOARD_H__
+#ifndef __CLAYLAND_POINTER_H__
+#define __CLAYLAND_POINTER_H__
 
-#include <clutter/clutter.h>
 #include <wayland-server.h>
 
 #include "clayland-seat.h"
 
-gboolean
-clayland_keyboard_init (ClaylandKeyboard *keyboard,
-                        struct wl_display *display);
+void
+clayland_pointer_init (ClaylandPointer *pointer);
 
 void
-clayland_keyboard_handle_event (ClaylandKeyboard *keyboard,
-                                const ClutterKeyEvent *event);
+clayland_pointer_release (ClaylandPointer *pointer);
 
 void
-clayland_keyboard_set_focus (ClaylandKeyboard *keyboard,
-                             struct wl_surface *surface);
+clayland_pointer_set_focus (ClaylandPointer *pointer,
+                            struct wl_surface *surface, wl_fixed_t sx,
+                            wl_fixed_t sy);
+void
+clayland_pointer_start_grab (ClaylandPointer *pointer,
+                             ClaylandPointerGrab *grab);
 
 void
-clayland_keyboard_start_grab (ClaylandKeyboard *device,
-                              ClaylandKeyboardGrab *grab);
+clayland_pointer_end_grab (ClaylandPointer *pointer);
 
 void
-clayland_keyboard_end_grab (ClaylandKeyboard *keyboard);
+clayland_pointer_set_current (ClaylandPointer *pointer,
+                              struct wl_surface *surface);
 
-void
-clayland_keyboard_release (ClaylandKeyboard *keyboard);
-
-#endif /* __CLAYLAND_KEYBOARD_H__ */
+#endif /* __CLAYLAND_POINTER_H__ */

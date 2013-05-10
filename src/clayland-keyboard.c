@@ -55,6 +55,14 @@
 
 #include "clayland-keyboard.h"
 
+static ClaylandSeat *
+clayland_keyboard_get_seat (ClaylandKeyboard *keyboard)
+{
+  ClaylandSeat *seat = wl_container_of (keyboard, seat, keyboard);
+
+  return seat;
+}
+
 static int
 create_tmpfile_cloexec (char *tmpname)
 {
@@ -197,15 +205,103 @@ clayland_keyboard_build_global_keymap (struct xkb_context *xkb_context,
   return TRUE;
 }
 
+static void
+lose_keyboard_focus (struct wl_listener *listener, void *data)
+{
+  ClaylandKeyboard *keyboard =
+    wl_container_of (listener, keyboard, focus_listener);
+
+  keyboard->focus_resource = NULL;
+}
+
+static void
+default_grab_key (ClaylandKeyboardGrab *grab,
+                  uint32_t time, uint32_t key, uint32_t state)
+{
+  ClaylandKeyboard *keyboard = grab->keyboard;
+  struct wl_resource *resource;
+  uint32_t serial;
+
+  resource = keyboard->focus_resource;
+  if (resource)
+    {
+      struct wl_display *display = wl_client_get_display (resource->client);
+      serial = wl_display_next_serial (display);
+      wl_keyboard_send_key (resource, serial, time, key, state);
+    }
+}
+
+static struct wl_resource *
+find_resource_for_surface (struct wl_list *list, struct wl_surface *surface)
+{
+  struct wl_resource *r;
+
+  if (!surface)
+    return NULL;
+
+  wl_list_for_each (r, list, link)
+  {
+    if (r->client == surface->resource.client)
+      return r;
+  }
+
+  return NULL;
+}
+
+static void
+default_grab_modifiers (ClaylandKeyboardGrab *grab, uint32_t serial,
+                        uint32_t mods_depressed, uint32_t mods_latched,
+                        uint32_t mods_locked, uint32_t group)
+{
+  ClaylandKeyboard *keyboard = grab->keyboard;
+  ClaylandSeat *seat = clayland_keyboard_get_seat (keyboard);
+  ClaylandPointer *pointer = &seat->pointer;
+  struct wl_resource *resource, *pr;
+
+  resource = keyboard->focus_resource;
+  if (!resource)
+    return;
+
+  wl_keyboard_send_modifiers (resource, serial, mods_depressed,
+                              mods_latched, mods_locked, group);
+
+  if (pointer && pointer->focus && pointer->focus != keyboard->focus)
+    {
+      pr = find_resource_for_surface (&keyboard->resource_list,
+                                      pointer->focus);
+      if (pr)
+        {
+          wl_keyboard_send_modifiers (pr,
+                                      serial,
+                                      keyboard->modifiers.mods_depressed,
+                                      keyboard->modifiers.mods_latched,
+                                      keyboard->modifiers.mods_locked,
+                                      keyboard->modifiers.group);
+        }
+    }
+}
+
+static const ClaylandKeyboardGrabInterface
+  default_keyboard_grab_interface = {
+  default_grab_key,
+  default_grab_modifiers,
+};
+
 gboolean
 clayland_keyboard_init (ClaylandKeyboard *keyboard,
                         struct wl_display *display)
 {
-  cwl_keyboard_init (&keyboard->parent);
+  memset (keyboard, 0, sizeof *keyboard);
+
+  wl_list_init (&keyboard->resource_list);
+  wl_array_init (&keyboard->keys);
+  keyboard->focus_listener.notify = lose_keyboard_focus;
+  keyboard->default_grab.interface = &default_keyboard_grab_interface;
+  keyboard->default_grab.keyboard = keyboard;
+  keyboard->grab = &keyboard->default_grab;
+  wl_signal_init (&keyboard->focus_signal);
 
   keyboard->display = display;
-
-  memset (&keyboard->xkb_names, 0, sizeof (keyboard->xkb_names));
 
   keyboard->xkb_context = xkb_context_new (0 /* flags */);
 
@@ -229,51 +325,50 @@ clayland_xkb_info_destroy (ClaylandXkbInfo *xkb_info)
 }
 
 static void
-set_modifiers (ClaylandKeyboard *clayland_keyboard,
+set_modifiers (ClaylandKeyboard *keyboard,
                guint32 serial,
                ClutterModifierType modifier_state)
 {
-  struct cwl_keyboard *keyboard = &clayland_keyboard->parent;
-  struct cwl_keyboard_grab *grab = keyboard->grab;
+  ClaylandKeyboardGrab *grab = keyboard->grab;
   uint32_t depressed_mods = 0;
   uint32_t locked_mods = 0;
 
-  if (clayland_keyboard->last_modifier_state == modifier_state)
+  if (keyboard->last_modifier_state == modifier_state)
     return;
 
   if ((modifier_state & CLUTTER_SHIFT_MASK) &&
-      clayland_keyboard->xkb_info.shift_mod != XKB_MOD_INVALID)
-    depressed_mods |= (1 << clayland_keyboard->xkb_info.shift_mod);
+      keyboard->xkb_info.shift_mod != XKB_MOD_INVALID)
+    depressed_mods |= (1 << keyboard->xkb_info.shift_mod);
 
   if ((modifier_state & CLUTTER_LOCK_MASK) &&
-      clayland_keyboard->xkb_info.caps_mod != XKB_MOD_INVALID)
-    locked_mods |= (1 << clayland_keyboard->xkb_info.caps_mod);
+      keyboard->xkb_info.caps_mod != XKB_MOD_INVALID)
+    locked_mods |= (1 << keyboard->xkb_info.caps_mod);
 
   if ((modifier_state & CLUTTER_CONTROL_MASK) &&
-      clayland_keyboard->xkb_info.ctrl_mod != XKB_MOD_INVALID)
-    depressed_mods |= (1 << clayland_keyboard->xkb_info.ctrl_mod);
+      keyboard->xkb_info.ctrl_mod != XKB_MOD_INVALID)
+    depressed_mods |= (1 << keyboard->xkb_info.ctrl_mod);
 
   if ((modifier_state & CLUTTER_MOD1_MASK) &&
-      clayland_keyboard->xkb_info.alt_mod != XKB_MOD_INVALID)
-    depressed_mods |= (1 << clayland_keyboard->xkb_info.alt_mod);
+      keyboard->xkb_info.alt_mod != XKB_MOD_INVALID)
+    depressed_mods |= (1 << keyboard->xkb_info.alt_mod);
 
   if ((modifier_state & CLUTTER_MOD2_MASK) &&
-      clayland_keyboard->xkb_info.mod2_mod != XKB_MOD_INVALID)
-    depressed_mods |= (1 << clayland_keyboard->xkb_info.mod2_mod);
+      keyboard->xkb_info.mod2_mod != XKB_MOD_INVALID)
+    depressed_mods |= (1 << keyboard->xkb_info.mod2_mod);
 
   if ((modifier_state & CLUTTER_MOD3_MASK) &&
-      clayland_keyboard->xkb_info.mod3_mod != XKB_MOD_INVALID)
-    depressed_mods |= (1 << clayland_keyboard->xkb_info.mod3_mod);
+      keyboard->xkb_info.mod3_mod != XKB_MOD_INVALID)
+    depressed_mods |= (1 << keyboard->xkb_info.mod3_mod);
 
   if ((modifier_state & CLUTTER_SUPER_MASK) &&
-      clayland_keyboard->xkb_info.super_mod != XKB_MOD_INVALID)
-    depressed_mods |= (1 << clayland_keyboard->xkb_info.super_mod);
+      keyboard->xkb_info.super_mod != XKB_MOD_INVALID)
+    depressed_mods |= (1 << keyboard->xkb_info.super_mod);
 
   if ((modifier_state & CLUTTER_MOD5_MASK) &&
-      clayland_keyboard->xkb_info.mod5_mod != XKB_MOD_INVALID)
-    depressed_mods |= (1 << clayland_keyboard->xkb_info.mod5_mod);
+      keyboard->xkb_info.mod5_mod != XKB_MOD_INVALID)
+    depressed_mods |= (1 << keyboard->xkb_info.mod5_mod);
 
-  clayland_keyboard->last_modifier_state = modifier_state;
+  keyboard->last_modifier_state = modifier_state;
 
   grab->interface->modifiers (grab,
                               serial,
@@ -284,10 +379,9 @@ set_modifiers (ClaylandKeyboard *clayland_keyboard,
 }
 
 void
-clayland_keyboard_handle_event (ClaylandKeyboard *clayland_keyboard,
+clayland_keyboard_handle_event (ClaylandKeyboard *keyboard,
                                 const ClutterKeyEvent *event)
 {
-  struct cwl_keyboard *keyboard = &clayland_keyboard->parent;
   gboolean state = event->type == CLUTTER_KEY_PRESS;
   guint evdev_code;
   uint32_t serial;
@@ -341,14 +435,72 @@ clayland_keyboard_handle_event (ClaylandKeyboard *clayland_keyboard,
       (void) 0;
     }
 
-  serial = wl_display_next_serial (clayland_keyboard->display);
+  serial = wl_display_next_serial (keyboard->display);
 
-  set_modifiers (clayland_keyboard, serial, event->modifier_state);
+  set_modifiers (keyboard, serial, event->modifier_state);
 
   keyboard->grab->interface->key (keyboard->grab,
                                   event->time,
                                   evdev_code,
                                   state);
+}
+
+void
+clayland_keyboard_set_focus (ClaylandKeyboard *keyboard,
+                             struct wl_surface *surface)
+{
+  struct wl_resource *resource;
+  uint32_t serial;
+
+  if (keyboard->focus_resource && keyboard->focus != surface)
+    {
+      struct wl_display *display;
+
+      resource = keyboard->focus_resource;
+      display = wl_client_get_display (resource->client);
+      serial = wl_display_next_serial (display);
+      wl_keyboard_send_leave (resource, serial, &keyboard->focus->resource);
+      wl_list_remove (&keyboard->focus_listener.link);
+    }
+
+  resource = find_resource_for_surface (&keyboard->resource_list, surface);
+  if (resource &&
+      (keyboard->focus != surface || keyboard->focus_resource != resource))
+    {
+      struct wl_display *display;
+
+      display = wl_client_get_display (resource->client);
+      serial = wl_display_next_serial (display);
+      wl_keyboard_send_modifiers (resource, serial,
+                                  keyboard->modifiers.mods_depressed,
+                                  keyboard->modifiers.mods_latched,
+                                  keyboard->modifiers.mods_locked,
+                                  keyboard->modifiers.group);
+      wl_keyboard_send_enter (resource, serial, &surface->resource,
+                              &keyboard->keys);
+      wl_signal_add (&resource->destroy_signal, &keyboard->focus_listener);
+      keyboard->focus_serial = serial;
+    }
+
+  keyboard->focus_resource = resource;
+  keyboard->focus = surface;
+  wl_signal_emit (&keyboard->focus_signal, keyboard);
+}
+
+void
+clayland_keyboard_start_grab (ClaylandKeyboard *keyboard,
+                              ClaylandKeyboardGrab *grab)
+{
+  keyboard->grab = grab;
+  grab->keyboard = keyboard;
+
+  /* XXX focus? */
+}
+
+void
+clayland_keyboard_end_grab (ClaylandKeyboard *keyboard)
+{
+  keyboard->grab = &keyboard->default_grab;
 }
 
 void
@@ -363,5 +515,8 @@ clayland_keyboard_release (ClaylandKeyboard *keyboard)
   clayland_xkb_info_destroy (&keyboard->xkb_info);
   xkb_context_unref (keyboard->xkb_context);
 
-  cwl_keyboard_release (&keyboard->parent);
+  /* XXX: What about keyboard->resource_list? */
+  if (keyboard->focus_resource)
+    wl_list_remove (&keyboard->focus_listener.link);
+  wl_array_release (&keyboard->keys);
 }

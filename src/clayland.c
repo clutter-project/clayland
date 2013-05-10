@@ -43,7 +43,8 @@
 #include "xserver-server-protocol.h"
 #include "clayland-compositor.h"
 #include "clayland-seat.h"
-#include "wl-input.h"
+#include "clayland-data-device.h"
+#include "clayland-keyboard.h"
 
 typedef struct
 {
@@ -1273,13 +1274,9 @@ event_cb (ClutterActor *stage,
         CLUTTER_WAYLAND_SURFACE (event->any.source);
       struct wl_surface *wl_surface =
         clutter_wayland_surface_get_surface (cw_surface);
-      struct cwl_seat *seat = (struct cwl_seat *) compositor->seat;
 
-      if (seat->keyboard)
-        {
-          cwl_keyboard_set_focus (seat->keyboard, wl_surface);
-          cwl_data_device_set_keyboard_focus (seat);
-        }
+      clayland_keyboard_set_focus (&compositor->seat->keyboard, wl_surface);
+      clayland_data_device_set_keyboard_focus (compositor->seat);
     }
 
   return FALSE;
@@ -1334,7 +1331,7 @@ main (int argc, char **argv)
   g_signal_connect_after (compositor.stage, "paint",
                           G_CALLBACK (paint_finished_cb), &compositor);
 
-  cwl_data_device_manager_init (compositor.wayland_display);
+  clayland_data_device_manager_init (compositor.wayland_display);
 
   compositor.seat = clayland_seat_new (compositor.wayland_display);
 

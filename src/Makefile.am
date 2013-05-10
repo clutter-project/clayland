@@ -8,15 +8,17 @@ INCLUDES = \
 clayland_SOURCES = \
 	clayland.c \
 	clayland-compositor.h \
+	clayland-data-device.c \
+	clayland-data-device.h \
 	clayland-keyboard.c \
 	clayland-keyboard.h \
+	clayland-pointer.c \
+	clayland-pointer.h \
 	clayland-seat.c \
 	clayland-seat.h \
 	xserver-protocol.c \
 	xserver-server-protocol.h \
-	wl-data-device.c \
-	wl-input.c \
-	wl-input.h
+	$(NULL)
 
 clayland.c : xserver-server-protocol.h
 
