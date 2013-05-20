@@ -42,7 +42,7 @@ typedef struct _ClaylandDataSource ClaylandDataSource;
 struct _ClaylandPointerGrabInterface
 {
   void (*focus) (ClaylandPointerGrab * grab,
-                 struct wl_surface * surface, wl_fixed_t x, wl_fixed_t y);
+                 ClaylandSurface * surface, wl_fixed_t x, wl_fixed_t y);
   void (*motion) (ClaylandPointerGrab * grab,
                   uint32_t time, wl_fixed_t x, wl_fixed_t y);
   void (*button) (ClaylandPointerGrab * grab,
@@ -53,14 +53,14 @@ struct _ClaylandPointerGrab
 {
   const ClaylandPointerGrabInterface *interface;
   ClaylandPointer *pointer;
-  struct wl_surface *focus;
+  ClaylandSurface *focus;
   wl_fixed_t x, y;
 };
 
 struct _ClaylandPointer
 {
   struct wl_list resource_list;
-  struct wl_surface *focus;
+  ClaylandSurface *focus;
   struct wl_resource *focus_resource;
   struct wl_listener focus_listener;
   guint32 focus_serial;
@@ -74,7 +74,7 @@ struct _ClaylandPointer
   guint32 grab_time;
 
   wl_fixed_t x, y;
-  struct wl_surface *current;
+  ClaylandSurface *current;
   struct wl_listener current_listener;
   wl_fixed_t current_x, current_y;
 
@@ -94,7 +94,7 @@ struct _ClaylandKeyboardGrab
 {
   const ClaylandKeyboardGrabInterface *interface;
   ClaylandKeyboard *keyboard;
-  struct wl_surface *focus;
+  ClaylandSurface *focus;
   uint32_t key;
 };
 
@@ -117,7 +117,7 @@ typedef struct
 struct _ClaylandKeyboard
 {
   struct wl_list resource_list;
-  struct wl_surface *focus;
+  ClaylandSurface *focus;
   struct wl_resource *focus_resource;
   struct wl_listener focus_listener;
   uint32_t focus_serial;
@@ -185,11 +185,11 @@ struct _ClaylandSeat
   struct wl_client *drag_client;
   ClaylandDataSource *drag_data_source;
   struct wl_listener drag_data_source_listener;
-  struct wl_surface *drag_focus;
+  ClaylandSurface *drag_focus;
   struct wl_resource *drag_focus_resource;
   struct wl_listener drag_focus_listener;
   ClaylandPointerGrab drag_grab;
-  struct wl_surface *drag_surface;
+  ClaylandSurface *drag_surface;
   struct wl_listener drag_icon_listener;
   struct wl_signal drag_icon_signal;
 

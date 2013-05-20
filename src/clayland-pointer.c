@@ -64,7 +64,9 @@ lose_pointer_focus (struct wl_listener *listener, void *data)
 
 static void
 default_grab_focus (ClaylandPointerGrab *grab,
-                    struct wl_surface *surface, wl_fixed_t x, wl_fixed_t y)
+                    ClaylandSurface *surface,
+                    wl_fixed_t x,
+                    wl_fixed_t y)
 {
   ClaylandPointer *pointer = grab->pointer;
 
@@ -138,7 +140,7 @@ clayland_pointer_release (ClaylandPointer *pointer)
 }
 
 static struct wl_resource *
-find_resource_for_surface (struct wl_list *list, struct wl_surface *surface)
+find_resource_for_surface (struct wl_list *list, ClaylandSurface *surface)
 {
   struct wl_resource *r;
 
@@ -156,7 +158,7 @@ find_resource_for_surface (struct wl_list *list, struct wl_surface *surface)
 
 void
 clayland_pointer_set_focus (ClaylandPointer *pointer,
-                            struct wl_surface *surface,
+                            ClaylandSurface *surface,
                             wl_fixed_t sx, wl_fixed_t sy)
 {
   ClaylandSeat *seat = clayland_pointer_get_seat (pointer);
@@ -240,7 +242,7 @@ current_surface_destroy (struct wl_listener *listener, void *data)
 
 void
 clayland_pointer_set_current (ClaylandPointer *pointer,
-                              struct wl_surface *surface)
+                              ClaylandSurface *surface)
 {
   if (pointer->current)
     wl_list_remove (&pointer->current_listener.link);

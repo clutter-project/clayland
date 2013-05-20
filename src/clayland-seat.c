@@ -94,7 +94,7 @@ pointer_set_cursor (struct wl_client *client,
   if (!surface)
     return;
 
-  wl_signal_add (&surface->wayland_surface.resource.destroy_signal,
+  wl_signal_add (&surface->resource.destroy_signal,
                  &seat->sprite_destroy_listener);
 
   seat->sprite = surface;
@@ -357,7 +357,7 @@ clayland_seat_repick (ClaylandSeat *seat,
                       ClutterActor *actor)
 {
   ClaylandPointer *pointer = &seat->pointer;
-  struct wl_surface *surface;
+  ClaylandSurface *surface;
   ClaylandSurface *focus;
 
   if (actor == NULL && seat->current_stage)
@@ -386,7 +386,8 @@ clayland_seat_repick (ClaylandSeat *seat,
       pointer->current_x = wl_fixed_from_double (ax);
       pointer->current_y = wl_fixed_from_double (ay);
 
-      surface = clutter_wayland_surface_get_surface (wl_surface);
+      surface = ((ClaylandSurface *)
+                 clutter_wayland_surface_get_surface (wl_surface));
     }
   else
     surface = NULL;

@@ -34,7 +34,8 @@ clayland_pointer_release (ClaylandPointer *pointer);
 
 void
 clayland_pointer_set_focus (ClaylandPointer *pointer,
-                            struct wl_surface *surface, wl_fixed_t sx,
+                            ClaylandSurface *surface,
+                            wl_fixed_t sx,
                             wl_fixed_t sy);
 void
 clayland_pointer_start_grab (ClaylandPointer *pointer,
@@ -45,6 +46,6 @@ clayland_pointer_end_grab (ClaylandPointer *pointer);
 
 void
 clayland_pointer_set_current (ClaylandPointer *pointer,
-                              struct wl_surface *surface);
+                              ClaylandSurface *surface);
 
 #endif /* __CLAYLAND_POINTER_H__ */

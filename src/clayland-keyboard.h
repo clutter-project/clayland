@@ -37,7 +37,7 @@ clayland_keyboard_handle_event (ClaylandKeyboard *keyboard,
 
 void
 clayland_keyboard_set_focus (ClaylandKeyboard *keyboard,
-                             struct wl_surface *surface);
+                             ClaylandSurface *surface);
 
 void
 clayland_keyboard_start_grab (ClaylandKeyboard *device,

@@ -232,7 +232,7 @@ default_grab_key (ClaylandKeyboardGrab *grab,
 }
 
 static struct wl_resource *
-find_resource_for_surface (struct wl_list *list, struct wl_surface *surface)
+find_resource_for_surface (struct wl_list *list, ClaylandSurface *surface)
 {
   struct wl_resource *r;
 
@@ -447,7 +447,7 @@ clayland_keyboard_handle_event (ClaylandKeyboard *keyboard,
 
 void
 clayland_keyboard_set_focus (ClaylandKeyboard *keyboard,
-                             struct wl_surface *surface)
+                             ClaylandSurface *surface)
 {
   struct wl_resource *resource;
   uint32_t serial;

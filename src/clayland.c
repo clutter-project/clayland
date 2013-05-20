@@ -386,7 +386,7 @@ clayland_surface_commit (struct wl_client *client,
               ClutterActor *stage = compositor->stage;
 
               surface->actor =
-                clutter_wayland_surface_new (&surface->wayland_surface);
+                clutter_wayland_surface_new ((struct wl_surface *) surface);
               clutter_container_add_actor (CLUTTER_CONTAINER (stage),
                                            surface->actor);
               clutter_actor_set_reactive (surface->actor, TRUE);
@@ -512,13 +512,13 @@ clayland_compositor_create_surface (struct wl_client *wayland_client,
 
   surface->compositor = compositor;
 
-  surface->wayland_surface.resource.destroy =
+  surface->resource.destroy =
     clayland_surface_resource_destroy_cb;
-  surface->wayland_surface.resource.object.id = id;
-  surface->wayland_surface.resource.object.interface = &wl_surface_interface;
-  surface->wayland_surface.resource.object.implementation =
+  surface->resource.object.id = id;
+  surface->resource.object.interface = &wl_surface_interface;
+  surface->resource.object.implementation =
           (void (**)(void)) &clayland_surface_interface;
-  surface->wayland_surface.resource.data = surface;
+  surface->resource.data = surface;
 
   surface->pending.damage = cairo_region_create ();
 
@@ -529,7 +529,7 @@ clayland_compositor_create_surface (struct wl_client *wayland_client,
     surface_handle_pending_buffer_destroy;
   wl_list_init (&surface->pending.frame_callback_list);
 
-  wl_client_add_resource (wayland_client, &surface->wayland_surface.resource);
+  wl_client_add_resource (wayland_client, &surface->resource);
 
   compositor->surfaces = g_list_prepend (compositor->surfaces, surface);
 }
@@ -850,7 +850,7 @@ get_shell_surface (struct wl_client *client,
 
   shell_surface->surface = surface;
   shell_surface->surface_destroy_listener.notify = shell_handle_surface_destroy;
-  wl_signal_add (&surface->wayland_surface.resource.destroy_signal,
+  wl_signal_add (&surface->resource.destroy_signal,
                  &shell_surface->surface_destroy_listener);
 
   surface->has_shell_surface = TRUE;
@@ -1148,7 +1148,7 @@ xserver_set_window_id (struct wl_client *client,
 #if 0
   ClaylandCompositor *compositor = compositor_resource->data;
   struct wlsc_wm *wm = wxs->wm;
-  struct wl_surface *surface = surface_resource->data;
+  ClaylandSurface *surface = surface_resource->data;
   struct wlsc_wm_window *window;
 
   if (client != wxs->client)
@@ -1272,10 +1272,10 @@ event_cb (ClutterActor *stage,
     {
       ClutterWaylandSurface *cw_surface =
         CLUTTER_WAYLAND_SURFACE (event->any.source);
-      struct wl_surface *wl_surface =
-        clutter_wayland_surface_get_surface (cw_surface);
+      ClaylandSurface *surface =
+        (ClaylandSurface *) clutter_wayland_surface_get_surface (cw_surface);
 
-      clayland_keyboard_set_focus (&compositor->seat->keyboard, wl_surface);
+      clayland_keyboard_set_focus (&compositor->seat->keyboard, surface);
       clayland_data_device_set_keyboard_focus (compositor->seat);
     }
 

@@ -31,7 +31,7 @@ typedef struct _ClaylandCompositor ClaylandCompositor;
 
 typedef struct
 {
-  struct wl_surface wayland_surface;
+  struct wl_resource resource;
   ClaylandCompositor *compositor;
   int x;
   int y;

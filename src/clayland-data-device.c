@@ -171,7 +171,9 @@ destroy_drag_focus (struct wl_listener *listener, void *data)
 
 static void
 drag_grab_focus (ClaylandPointerGrab *grab,
-                 struct wl_surface *surface, wl_fixed_t x, wl_fixed_t y)
+                 ClaylandSurface *surface,
+                 wl_fixed_t x,
+                 wl_fixed_t y)
 {
   ClaylandSeat *seat = wl_container_of (grab, seat, drag_grab);
   struct wl_resource *resource, *offer = NULL;
