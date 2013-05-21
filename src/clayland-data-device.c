@@ -355,8 +355,9 @@ destroy_selection_data_source (struct wl_listener *listener, void *data)
 }
 
 void
-cwl_seat_set_selection (ClaylandSeat *seat, ClaylandDataSource *source,
-                        guint32 serial)
+clayland_seat_set_selection (ClaylandSeat *seat,
+                             ClaylandDataSource *source,
+                             guint32 serial)
 {
   struct wl_resource *data_device, *offer;
   struct wl_resource *focus = NULL;
@@ -413,7 +414,7 @@ data_device_set_selection (struct wl_client *client,
     return;
 
   /* FIXME: Store serial and check against incoming serial here. */
-  cwl_seat_set_selection (resource->data, source_resource->data, serial);
+  clayland_seat_set_selection (resource->data, source_resource->data, serial);
 }
 
 static const struct wl_data_device_interface data_device_interface = {

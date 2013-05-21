@@ -27,14 +27,16 @@
 
 #include "clayland-seat.h"
 
-void clayland_data_device_set_keyboard_focus (ClaylandSeat *seat);
+void
+clayland_data_device_set_keyboard_focus (ClaylandSeat *seat);
 
-int clayland_data_device_manager_init (struct wl_display *display);
+int
+clayland_data_device_manager_init (struct wl_display *display);
 
 void
-cwl_seat_set_selection (ClaylandSeat *seat,
-                        ClaylandDataSource *source,
-                        uint32_t serial);
+clayland_seat_set_selection (ClaylandSeat *seat,
+                             ClaylandDataSource *source,
+                             uint32_t serial);
 
 
 #endif /* __CLAYLAND_DATA_DEVICE_H__ */
