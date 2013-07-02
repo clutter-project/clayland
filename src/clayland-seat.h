@@ -154,14 +154,15 @@ struct _ClaylandKeyboard
 
 struct _ClaylandDataOffer
 {
-  struct wl_resource resource;
+  struct wl_resource *resource;
   ClaylandDataSource *source;
   struct wl_listener source_destroy_listener;
 };
 
 struct _ClaylandDataSource
 {
-  struct wl_resource resource;
+  struct wl_resource *resource;
+  struct wl_signal destroy_signal;
   struct wl_array mime_types;
 
   void (*accept) (ClaylandDataSource * source,

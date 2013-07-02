@@ -225,7 +225,8 @@ default_grab_key (ClaylandKeyboardGrab *grab,
   resource = keyboard->focus_resource;
   if (resource)
     {
-      struct wl_display *display = wl_client_get_display (resource->client);
+      struct wl_client *client = wl_resource_get_client (resource);
+      struct wl_display *display = wl_client_get_display (client);
       serial = wl_display_next_serial (display);
       wl_keyboard_send_key (resource, serial, time, key, state);
     }
@@ -241,7 +242,7 @@ find_resource_for_surface (struct wl_list *list, ClaylandSurface *surface)
 
   wl_list_for_each (r, list, link)
   {
-    if (r->client == surface->resource.client)
+    if (r->client == wl_resource_get_client (surface->resource))
       return r;
   }
 
@@ -455,11 +456,13 @@ clayland_keyboard_set_focus (ClaylandKeyboard *keyboard,
   if (keyboard->focus_resource && keyboard->focus != surface)
     {
       struct wl_display *display;
+      struct wl_client *client;
 
       resource = keyboard->focus_resource;
-      display = wl_client_get_display (resource->client);
+      client = wl_resource_get_client (resource);
+      display = wl_client_get_display (client);
       serial = wl_display_next_serial (display);
-      wl_keyboard_send_leave (resource, serial, &keyboard->focus->resource);
+      wl_keyboard_send_leave (resource, serial, keyboard->focus->resource);
       wl_list_remove (&keyboard->focus_listener.link);
     }
 
@@ -468,17 +471,20 @@ clayland_keyboard_set_focus (ClaylandKeyboard *keyboard,
       (keyboard->focus != surface || keyboard->focus_resource != resource))
     {
       struct wl_display *display;
+      struct wl_client *client = wl_resource_get_client (resource);
 
-      display = wl_client_get_display (resource->client);
+      display = wl_client_get_display (client);
       serial = wl_display_next_serial (display);
       wl_keyboard_send_modifiers (resource, serial,
                                   keyboard->modifiers.mods_depressed,
                                   keyboard->modifiers.mods_latched,
                                   keyboard->modifiers.mods_locked,
                                   keyboard->modifiers.group);
-      wl_keyboard_send_enter (resource, serial, &surface->resource,
+      wl_keyboard_send_enter (resource,
+                              serial,
+                              surface->resource,
                               &keyboard->keys);
-      wl_signal_add (&resource->destroy_signal, &keyboard->focus_listener);
+      wl_resource_add_destroy_listener (resource, &keyboard->focus_listener);
       keyboard->focus_serial = serial;
     }
 

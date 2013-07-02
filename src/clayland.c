@@ -48,14 +48,14 @@
 
 typedef struct
 {
-  struct wl_resource resource;
+  struct wl_resource *resource;
   cairo_region_t *region;
 } ClaylandRegion;
 
 typedef struct
 {
   ClaylandSurface *surface;
-  struct wl_resource resource;
+  struct wl_resource *resource;
   struct wl_listener surface_destroy_listener;
 } ClaylandShellSurface;
 
@@ -93,7 +93,7 @@ typedef struct
   /* Pointer back to the compositor */
   ClaylandCompositor *compositor;
 
-  struct wl_resource resource;
+  struct wl_resource *resource;
 } ClaylandFrameCallback;
 
 struct _ClaylandCompositor
@@ -316,7 +316,8 @@ clayland_surface_attach (struct wl_client *wayland_client,
                          struct wl_resource *wayland_buffer_resource,
                          gint32 sx, gint32 sy)
 {
-  ClaylandSurface *surface = wayland_surface_resource->data;
+  ClaylandSurface *surface =
+    wl_resource_get_user_data (wayland_surface_resource);
   ClaylandBuffer *buffer;
 
   if (wayland_buffer_resource)
@@ -346,7 +347,7 @@ clayland_surface_damage (struct wl_client *client,
                          gint32 width,
                          gint32 height)
 {
-  ClaylandSurface *surface = surface_resource->data;
+  ClaylandSurface *surface = wl_resource_get_user_data (surface_resource);
   cairo_rectangle_int_t rectangle = { x, y, width, height };
 
   cairo_region_union_rectangle (surface->pending.damage, &rectangle);
@@ -355,7 +356,8 @@ clayland_surface_damage (struct wl_client *client,
 static void
 destroy_frame_callback (struct wl_resource *callback_resource)
 {
-  ClaylandFrameCallback *callback = callback_resource->data;
+  ClaylandFrameCallback *callback =
+    wl_resource_get_user_data (callback_resource);
 
   wl_list_remove (&callback->link);
   g_slice_free (ClaylandFrameCallback, callback);
@@ -367,16 +369,17 @@ clayland_surface_frame (struct wl_client *client,
                         guint32 callback_id)
 {
   ClaylandFrameCallback *callback;
-  ClaylandSurface *surface = surface_resource->data;
+  ClaylandSurface *surface = wl_resource_get_user_data (surface_resource);
 
   callback = g_slice_new0 (ClaylandFrameCallback);
   callback->compositor = surface->compositor;
-  callback->resource.object.interface = &wl_callback_interface;
-  callback->resource.object.id = callback_id;
-  callback->resource.destroy = destroy_frame_callback;
-  callback->resource.data = callback;
+  callback->resource = wl_client_add_object (client,
+                                             &wl_callback_interface,
+                                             NULL, /* no implementation */
+                                             callback_id,
+                                             callback);
+  wl_resource_set_destructor (callback->resource, destroy_frame_callback);
 
-  wl_client_add_resource (client, &callback->resource);
   wl_list_insert (surface->pending.frame_callback_list.prev, &callback->link);
 }
 
@@ -405,7 +408,7 @@ static void
 clayland_surface_commit (struct wl_client *client,
                          struct wl_resource *resource)
 {
-  ClaylandSurface *surface = resource->data;
+  ClaylandSurface *surface = wl_resource_get_user_data (resource);
   ClaylandCompositor *compositor = surface->compositor;
 
   /* wl_surface.attach */
@@ -513,7 +516,7 @@ clayland_surface_free (ClaylandSurface *surface)
 
   wl_list_for_each_safe (cb, next,
                          &surface->pending.frame_callback_list, link)
-    wl_resource_destroy (&cb->resource);
+    wl_resource_destroy (cb->resource);
 
   g_slice_free (ClaylandSurface, surface);
 
@@ -523,7 +526,7 @@ clayland_surface_free (ClaylandSurface *surface)
 static void
 clayland_surface_resource_destroy_cb (struct wl_resource *resource)
 {
-  ClaylandSurface *surface = resource->data;
+  ClaylandSurface *surface = wl_resource_get_user_data (resource);
   clayland_surface_free (surface);
 }
 
@@ -542,26 +545,27 @@ clayland_compositor_create_surface (struct wl_client *wayland_client,
                                     struct wl_resource *compositor_resource,
                                     guint32 id)
 {
-  ClaylandCompositor *compositor = compositor_resource->data;
+  ClaylandCompositor *compositor =
+    wl_resource_get_user_data (compositor_resource);
   ClaylandSurface *surface = g_slice_new0 (ClaylandSurface);
 
   surface->compositor = compositor;
 
-  surface->resource.destroy =
-    clayland_surface_resource_destroy_cb;
-  surface->resource.object.id = id;
-  surface->resource.object.interface = &wl_surface_interface;
-  surface->resource.object.implementation =
-          (void (**)(void)) &clayland_surface_interface;
-  surface->resource.data = surface;
+  wl_signal_init (&surface->destroy_signal);
+
+  surface->resource = wl_client_add_object (wayland_client,
+                                            &wl_surface_interface,
+                                            &clayland_surface_interface,
+                                            id,
+                                            surface);
+  wl_resource_set_destructor (surface->resource,
+                              clayland_surface_resource_destroy_cb);
 
   surface->pending.damage = cairo_region_create ();
 
   surface->pending.buffer_destroy_listener.notify =
     surface_handle_pending_buffer_destroy;
   wl_list_init (&surface->pending.frame_callback_list);
-
-  wl_client_add_resource (wayland_client, &surface->resource);
 
   compositor->surfaces = g_list_prepend (compositor->surfaces, surface);
 }
@@ -581,7 +585,7 @@ clayland_region_add (struct wl_client *client,
                      gint32 width,
                      gint32 height)
 {
-  ClaylandRegion *region = resource->data;
+  ClaylandRegion *region = wl_resource_get_user_data (resource);
   cairo_rectangle_int_t rectangle = { x, y, width, height };
 
   cairo_region_union_rectangle (region->region, &rectangle);
@@ -595,7 +599,7 @@ clayland_region_subtract (struct wl_client *client,
                      gint32 width,
                      gint32 height)
 {
-  ClaylandRegion *region = resource->data;
+  ClaylandRegion *region = wl_resource_get_user_data (resource);
   cairo_rectangle_int_t rectangle = { x, y, width, height };
 
   cairo_region_subtract_rectangle (region->region, &rectangle);
@@ -610,7 +614,7 @@ const struct wl_region_interface clayland_region_interface = {
 static void
 clayland_region_resource_destroy_cb (struct wl_resource *resource)
 {
-  ClaylandRegion *region = resource->data;
+  ClaylandRegion *region = wl_resource_get_user_data (resource);
 
   cairo_region_destroy (region->region);
   g_slice_free (ClaylandRegion, region);
@@ -623,17 +627,15 @@ clayland_compositor_create_region (struct wl_client *wayland_client,
 {
   ClaylandRegion *region = g_slice_new0 (ClaylandRegion);
 
-  region->resource.destroy =
-    clayland_region_resource_destroy_cb;
-  region->resource.object.id = id;
-  region->resource.object.interface = &wl_region_interface;
-  region->resource.object.implementation =
-          (void (**)(void)) &clayland_region_interface;
-  region->resource.data = region;
+  region->resource = wl_client_add_object (wayland_client,
+                                           &wl_region_interface,
+                                           &clayland_region_interface,
+                                           id,
+                                           region);
+  wl_resource_set_destructor (region->resource,
+                              clayland_region_resource_destroy_cb);
 
   region->region = cairo_region_create ();
-
-  wl_client_add_resource (wayland_client, &region->resource);
 }
 
 static void
@@ -713,9 +715,10 @@ paint_finished_cb (ClutterActor *self, void *user_data)
       ClaylandFrameCallback *callback =
         wl_container_of (compositor->frame_callbacks.next, callback, link);
 
-      wl_resource_post_event (&callback->resource,
-                              WL_CALLBACK_DONE, get_time ());
-      wl_resource_destroy (&callback->resource);
+      wl_resource_post_event (callback->resource,
+                              WL_CALLBACK_DONE,
+                              get_time ());
+      wl_resource_destroy (callback->resource);
     }
 }
 
@@ -829,22 +832,8 @@ clayland_shell_surface_interface =
 };
 
 static void
-shell_handle_surface_destroy (struct wl_listener *listener,
-                              void *data)
+destroy_shell_surface (ClaylandShellSurface *shell_surface)
 {
-  ClaylandShellSurface *shell_surface =
-    wl_container_of (listener, shell_surface, surface_destroy_listener);
-
-  shell_surface->surface->has_shell_surface = FALSE;
-  shell_surface->surface = NULL;
-  wl_resource_destroy (&shell_surface->resource);
-}
-
-static void
-destroy_shell_surface (struct wl_resource *resource)
-{
-  ClaylandShellSurface *shell_surface = resource->data;
-
   /* In case cleaning up a dead client destroys shell_surface first */
   if (shell_surface->surface)
     {
@@ -856,12 +845,34 @@ destroy_shell_surface (struct wl_resource *resource)
 }
 
 static void
+destroy_shell_surface_cb (struct wl_resource *resource)
+{
+  destroy_shell_surface (wl_resource_get_user_data (resource));
+}
+
+static void
+shell_handle_surface_destroy (struct wl_listener *listener,
+                              void *data)
+{
+  ClaylandShellSurface *shell_surface =
+    wl_container_of (listener, shell_surface, surface_destroy_listener);
+
+  shell_surface->surface->has_shell_surface = FALSE;
+  shell_surface->surface = NULL;
+
+  if (shell_surface->resource)
+    wl_resource_destroy (shell_surface->resource);
+  else
+    destroy_shell_surface (shell_surface);
+}
+
+static void
 get_shell_surface (struct wl_client *client,
                    struct wl_resource *resource,
                    guint32 id,
                    struct wl_resource *surface_resource)
 {
-  ClaylandSurface *surface = surface_resource->data;
+  ClaylandSurface *surface = wl_resource_get_user_data (surface_resource);
   ClaylandShellSurface *shell_surface;
 
   if (surface->has_shell_surface)
@@ -873,21 +884,22 @@ get_shell_surface (struct wl_client *client,
     }
 
   shell_surface = g_new0 (ClaylandShellSurface, 1);
-  shell_surface->resource.destroy = destroy_shell_surface;
-  shell_surface->resource.object.id = id;
-  shell_surface->resource.object.interface = &wl_shell_surface_interface;
-  shell_surface->resource.object.implementation =
-    (void (**) (void)) &clayland_shell_surface_interface;
-  shell_surface->resource.data = shell_surface;
 
   shell_surface->surface = surface;
   shell_surface->surface_destroy_listener.notify = shell_handle_surface_destroy;
-  wl_signal_add (&surface->resource.destroy_signal,
-                 &shell_surface->surface_destroy_listener);
+  wl_resource_add_destroy_listener (surface->resource,
+                                    &shell_surface->surface_destroy_listener);
 
   surface->has_shell_surface = TRUE;
 
-  wl_client_add_resource (client, &shell_surface->resource);
+  shell_surface->resource =
+    wl_client_add_object (client,
+                          &wl_shell_surface_interface,
+                          &clayland_shell_surface_interface,
+                          id,
+                          shell_surface);
+  wl_resource_set_destructor (shell_surface->resource,
+                              destroy_shell_surface_cb);
 }
 
 static const struct wl_shell_interface clayland_shell_interface =
@@ -1178,9 +1190,10 @@ xserver_set_window_id (struct wl_client *client,
                        guint32 id)
 {
 #if 0
-  ClaylandCompositor *compositor = compositor_resource->data;
+  ClaylandCompositor *compositor =
+    wl_resource_get_user_data (compositor_resource);
   struct wlsc_wm *wm = wxs->wm;
-  ClaylandSurface *surface = surface_resource->data;
+  ClaylandSurface *surface = wl_resource_get_user_data (surface_resource);
   struct wlsc_wm_window *window;
 
   if (client != wxs->client)

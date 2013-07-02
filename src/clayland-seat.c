@@ -36,8 +36,7 @@
 static void
 unbind_resource (struct wl_resource *resource)
 {
-  wl_list_remove (&resource->link);
-  free (resource);
+  wl_list_remove (wl_resource_get_link (resource));
 }
 
 static void
@@ -77,14 +76,16 @@ pointer_set_cursor (struct wl_client *client,
                     struct wl_resource *surface_resource,
                     int32_t x, int32_t y)
 {
-  ClaylandSeat *seat = resource->data;
+  ClaylandSeat *seat = wl_resource_get_user_data (resource);
   ClaylandSurface *surface;
 
-  surface = surface_resource ? surface_resource->data : NULL;
+  surface = (surface_resource ?
+             wl_resource_get_user_data (surface_resource) :
+             NULL);
 
   if (seat->pointer.focus == NULL)
     return;
-  if (seat->pointer.focus->resource.client != client)
+  if (wl_resource_get_client (seat->pointer.focus->resource) != client)
     return;
   if (seat->pointer.focus_serial - serial > G_MAXUINT32 / 2)
     return;
@@ -94,8 +95,8 @@ pointer_set_cursor (struct wl_client *client,
   if (!surface)
     return;
 
-  wl_signal_add (&surface->resource.destroy_signal,
-                 &seat->sprite_destroy_listener);
+  wl_resource_add_destroy_listener (surface->resource,
+                                    &seat->sprite_destroy_listener);
 
   seat->sprite = surface;
   seat->hotspot_x = x;
@@ -113,7 +114,7 @@ seat_get_pointer (struct wl_client *client,
                   struct wl_resource *resource,
                   uint32_t id)
 {
-  ClaylandSeat *seat = resource->data;
+  ClaylandSeat *seat = wl_resource_get_user_data (resource);
   struct wl_resource *cr;
 
   cr = wl_client_add_object (client, &wl_pointer_interface,
@@ -122,7 +123,7 @@ seat_get_pointer (struct wl_client *client,
   cr->destroy = unbind_resource;
 
   if (seat->pointer.focus &&
-      seat->pointer.focus->resource.client == client)
+      wl_resource_get_client (seat->pointer.focus->resource) == client)
     {
       ClaylandSurface *surface;
       wl_fixed_t sx, sy;
@@ -143,7 +144,7 @@ seat_get_keyboard (struct wl_client *client,
                    struct wl_resource *resource,
                    uint32_t id)
 {
-  ClaylandSeat *seat = resource->data;
+  ClaylandSeat *seat = wl_resource_get_user_data (resource);
   struct wl_resource *cr;
 
   cr = wl_client_add_object (client, &wl_keyboard_interface, NULL, id, seat);
@@ -156,7 +157,7 @@ seat_get_keyboard (struct wl_client *client,
                            seat->keyboard.xkb_info.keymap_size);
 
   if (seat->keyboard.focus &&
-      seat->keyboard.focus->resource.client == client)
+      wl_resource_get_client (seat->keyboard.focus->resource) == client)
     {
       clayland_keyboard_set_focus (&seat->keyboard,
                                    seat->keyboard.focus);
@@ -194,8 +195,9 @@ bind_seat (struct wl_client *client,
                                    &seat_interface,
                                    id,
                                    data);
-  wl_list_insert (&seat->base_resource_list, &resource->link);
-  resource->destroy = unbind_resource;
+  wl_list_insert (&seat->base_resource_list,
+                  wl_resource_get_link (resource));
+  wl_resource_set_destructor (resource, unbind_resource);
 
   wl_seat_send_capabilities (resource,
                              WL_SEAT_CAPABILITY_POINTER |

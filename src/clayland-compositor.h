@@ -53,13 +53,16 @@ typedef struct
 
 typedef struct
 {
-  struct wl_resource resource;
   ClaylandCompositor *compositor;
+
+  struct wl_resource *resource;
   int x;
   int y;
   ClaylandBufferReference buffer_ref;
   ClutterActor *actor;
   gboolean has_shell_surface;
+
+  struct wl_signal destroy_signal;
 
   /* All the pending state, that wl_surface.commit will apply. */
   struct

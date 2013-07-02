@@ -38,7 +38,7 @@ data_offer_accept (struct wl_client *client,
                    guint32 serial,
                    const char *mime_type)
 {
-  ClaylandDataOffer *offer = resource->data;
+  ClaylandDataOffer *offer = wl_resource_get_user_data (resource);
 
   /* FIXME: Check that client is currently focused by the input
    * device that is currently dragging this data source.  Should
@@ -52,7 +52,7 @@ static void
 data_offer_receive (struct wl_client *client, struct wl_resource *resource,
                     const char *mime_type, int32_t fd)
 {
-  ClaylandDataOffer *offer = resource->data;
+  ClaylandDataOffer *offer = wl_resource_get_user_data (resource);
 
   if (offer->source)
     offer->source->send (offer->source, mime_type, fd);
@@ -75,7 +75,7 @@ static const struct wl_data_offer_interface data_offer_interface = {
 static void
 destroy_data_offer (struct wl_resource *resource)
 {
-  ClaylandDataOffer *offer = resource->data;
+  ClaylandDataOffer *offer = wl_resource_get_user_data (resource);
 
   if (offer->source)
     wl_list_remove (&offer->source_destroy_listener.link);
@@ -103,30 +103,29 @@ clayland_data_source_send_offer (ClaylandDataSource *source,
   if (offer == NULL)
     return NULL;
 
-  wl_resource_init (&offer->resource, &wl_data_offer_interface,
-                    &data_offer_interface, 0, offer);
-  offer->resource.destroy = destroy_data_offer;
+  offer->resource = wl_client_new_object (wl_resource_get_client (target),
+                                          &wl_data_offer_interface,
+                                          &data_offer_interface, offer);
+  wl_resource_set_destructor (offer->resource, destroy_data_offer);
 
   offer->source = source;
   offer->source_destroy_listener.notify = destroy_offer_data_source;
-  wl_signal_add (&source->resource.destroy_signal,
+  wl_signal_add (&source->destroy_signal,
                  &offer->source_destroy_listener);
 
-  wl_client_add_resource (target->client, &offer->resource);
-
-  wl_data_device_send_data_offer (target, &offer->resource);
+  wl_data_device_send_data_offer (target, offer->resource);
 
   wl_array_for_each (p, &source->mime_types)
-    wl_data_offer_send_offer (&offer->resource, *p);
+    wl_data_offer_send_offer (offer->resource, *p);
 
-  return &offer->resource;
+  return offer->resource;
 }
 
 static void
 data_source_offer (struct wl_client *client,
                    struct wl_resource *resource, const char *type)
 {
-  ClaylandDataSource *source = resource->data;
+  ClaylandDataSource *source = wl_resource_get_user_data (resource);
   char **p;
 
   p = wl_array_add (&source->mime_types, sizeof *p);
@@ -177,6 +176,7 @@ drag_grab_focus (ClaylandPointerGrab *grab,
 {
   ClaylandSeat *seat = wl_container_of (grab, seat, drag_grab);
   struct wl_resource *resource, *offer = NULL;
+  struct wl_client *client;
   struct wl_display *display;
   guint32 serial;
 
@@ -192,26 +192,27 @@ drag_grab_focus (ClaylandPointerGrab *grab,
     return;
 
   if (!seat->drag_data_source &&
-      surface->resource.client != seat->drag_client)
+      wl_resource_get_client (surface->resource) != seat->drag_client)
     return;
 
   resource = find_resource (&seat->drag_resource_list,
-                            surface->resource.client);
+                            wl_resource_get_client (surface->resource));
   if (!resource)
     return;
 
-  display = wl_client_get_display (resource->client);
+  client = wl_resource_get_client (resource);
+  display = wl_client_get_display (client);
   serial = wl_display_next_serial (display);
 
   if (seat->drag_data_source)
     offer = clayland_data_source_send_offer (seat->drag_data_source, resource);
 
-  wl_data_device_send_enter (resource, serial, &surface->resource,
+  wl_data_device_send_enter (resource, serial, surface->resource,
                              x, y, offer);
 
   seat->drag_focus = surface;
   seat->drag_focus_listener.notify = destroy_drag_focus;
-  wl_signal_add (&resource->destroy_signal, &seat->drag_focus_listener);
+  wl_resource_add_destroy_listener (resource, &seat->drag_focus_listener);
   seat->drag_focus_resource = resource;
   grab->focus = surface;
 }
@@ -297,7 +298,7 @@ data_device_start_drag (struct wl_client *client,
                         struct wl_resource *origin_resource,
                         struct wl_resource *icon_resource, guint32 serial)
 {
-  ClaylandSeat *seat = resource->data;
+  ClaylandSeat *seat = wl_resource_get_user_data (resource);
 
   /* FIXME: Check that client has implicit grab on the origin
    * surface that matches the given time. */
@@ -311,18 +312,18 @@ data_device_start_drag (struct wl_client *client,
 
   if (source_resource)
     {
-      seat->drag_data_source = source_resource->data;
+      seat->drag_data_source = wl_resource_get_user_data (source_resource);
       seat->drag_data_source_listener.notify = destroy_data_device_source;
-      wl_signal_add (&source_resource->destroy_signal,
-                     &seat->drag_data_source_listener);
+      wl_resource_add_destroy_listener (source_resource,
+                                        &seat->drag_data_source_listener);
     }
 
   if (icon_resource)
     {
-      seat->drag_surface = icon_resource->data;
+      seat->drag_surface = wl_resource_get_user_data (icon_resource);
       seat->drag_icon_listener.notify = destroy_data_device_icon;
-      wl_signal_add (&icon_resource->destroy_signal,
-                     &seat->drag_icon_listener);
+      wl_resource_add_destroy_listener (icon_resource,
+                                        &seat->drag_icon_listener);
       wl_signal_emit (&seat->drag_icon_signal, icon_resource);
     }
 
@@ -399,7 +400,7 @@ clayland_seat_set_selection (ClaylandSeat *seat,
     {
       seat->selection_data_source_listener.notify =
         destroy_selection_data_source;
-      wl_signal_add (&source->resource.destroy_signal,
+      wl_signal_add (&source->destroy_signal,
                      &seat->selection_data_source_listener);
     }
 }
@@ -414,7 +415,9 @@ data_device_set_selection (struct wl_client *client,
     return;
 
   /* FIXME: Store serial and check against incoming serial here. */
-  clayland_seat_set_selection (resource->data, source_resource->data, serial);
+  clayland_seat_set_selection (wl_resource_get_user_data (resource),
+                               source_resource->data,
+                               serial);
 }
 
 static const struct wl_data_device_interface data_device_interface = {
@@ -428,32 +431,35 @@ destroy_data_source (struct wl_resource *resource)
   ClaylandDataSource *source = wl_container_of (resource, source, resource);
   char **p;
 
-  wl_array_for_each (p, &source->mime_types) free (*p);
+  wl_signal_emit (&source->destroy_signal, source);
+
+  wl_array_for_each (p, &source->mime_types)
+    free (*p);
 
   wl_array_release (&source->mime_types);
 
-  source->resource.object.id = 0;
+  free (source);
 }
 
 static void
 client_source_accept (ClaylandDataSource *source,
                       guint32 time, const char *mime_type)
 {
-  wl_data_source_send_target (&source->resource, mime_type);
+  wl_data_source_send_target (source->resource, mime_type);
 }
 
 static void
 client_source_send (ClaylandDataSource *source,
                     const char *mime_type, int32_t fd)
 {
-  wl_data_source_send_send (&source->resource, mime_type, fd);
+  wl_data_source_send_send (source->resource, mime_type, fd);
   close (fd);
 }
 
 static void
 client_source_cancel (ClaylandDataSource *source)
 {
-  wl_data_source_send_cancelled (&source->resource);
+  wl_data_source_send_cancelled (source->resource);
 }
 
 static void
@@ -469,23 +475,24 @@ create_data_source (struct wl_client *client,
       return;
     }
 
-  wl_resource_init (&source->resource, &wl_data_source_interface,
-                    &data_source_interface, id, source);
-  source->resource.destroy = destroy_data_source;
-
+  wl_signal_init(&source->destroy_signal);
   source->accept = client_source_accept;
   source->send = client_source_send;
   source->cancel = client_source_cancel;
 
   wl_array_init (&source->mime_types);
-  wl_client_add_resource (client, &source->resource);
+
+  source->resource = wl_client_add_object (client,
+                                           &wl_data_source_interface,
+                                           &data_source_interface,
+                                           id, source);
+  wl_resource_set_destructor (source->resource, destroy_data_source);
 }
 
 static void
 unbind_data_device (struct wl_resource *resource)
 {
-  wl_list_remove (&resource->link);
-  free (resource);
+  wl_list_remove (wl_resource_get_link (resource));
 }
 
 static void
@@ -499,8 +506,8 @@ get_data_device (struct wl_client *client,
   resource = wl_client_add_object (client, &wl_data_device_interface,
                                    &data_device_interface, id, seat);
 
-  wl_list_insert (&seat->drag_resource_list, &resource->link);
-  resource->destroy = unbind_data_device;
+  wl_list_insert (&seat->drag_resource_list, wl_resource_get_link (resource));
+  wl_resource_set_destructor (resource, unbind_data_device);
 }
 
 static const struct wl_data_device_manager_interface manager_interface = {

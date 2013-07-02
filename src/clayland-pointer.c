@@ -99,7 +99,8 @@ default_grab_button (ClaylandPointerGrab *grab,
   resource = pointer->focus_resource;
   if (resource)
     {
-      struct wl_display *display = wl_client_get_display (resource->client);
+      struct wl_client *client = wl_resource_get_client (resource);
+      struct wl_display *display = wl_client_get_display (client);
       serial = wl_display_next_serial (display);
       wl_pointer_send_button (resource, serial, time, button, state_w);
     }
@@ -149,7 +150,7 @@ find_resource_for_surface (struct wl_list *list, ClaylandSurface *surface)
 
   wl_list_for_each (r, list, link)
   {
-    if (r->client == surface->resource.client)
+    if (r->client == wl_resource_get_client (surface->resource))
       return r;
   }
 
@@ -169,9 +170,10 @@ clayland_pointer_set_focus (ClaylandPointer *pointer,
   resource = pointer->focus_resource;
   if (resource && pointer->focus != surface)
     {
-      struct wl_display *display = wl_client_get_display (resource->client);
+      struct wl_client *client = wl_resource_get_client (resource);
+      struct wl_display *display = wl_client_get_display (client);
       serial = wl_display_next_serial (display);
-      wl_pointer_send_leave (resource, serial, &pointer->focus->resource);
+      wl_pointer_send_leave (resource, serial, pointer->focus->resource);
       wl_list_remove (&pointer->focus_listener.link);
     }
 
@@ -179,7 +181,8 @@ clayland_pointer_set_focus (ClaylandPointer *pointer,
   if (resource &&
       (pointer->focus != surface || pointer->focus_resource != resource))
     {
-      struct wl_display *display = wl_client_get_display (resource->client);
+      struct wl_client *client = wl_resource_get_client (resource);
+      struct wl_display *display = wl_client_get_display (client);
       serial = wl_display_next_serial (display);
       if (kbd)
         {
@@ -194,8 +197,8 @@ clayland_pointer_set_focus (ClaylandPointer *pointer,
                                           kbd->modifiers.group);
             }
         }
-      wl_pointer_send_enter (resource, serial, &surface->resource, sx, sy);
-      wl_signal_add (&resource->destroy_signal, &pointer->focus_listener);
+      wl_pointer_send_enter (resource, serial, surface->resource, sx, sy);
+      wl_resource_add_destroy_listener (resource, &pointer->focus_listener);
       pointer->focus_serial = serial;
     }
 
@@ -252,7 +255,7 @@ clayland_pointer_set_current (ClaylandPointer *pointer,
   if (!surface)
     return;
 
-  wl_signal_add (&surface->resource.destroy_signal,
-                 &pointer->current_listener);
+  wl_resource_add_destroy_listener (surface->resource,
+                                    &pointer->current_listener);
   pointer->current_listener.notify = current_surface_destroy;
 }
