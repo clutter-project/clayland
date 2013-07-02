@@ -201,16 +201,91 @@ wayland_event_source_new (struct wl_display *display)
 }
 
 static void
+clayland_buffer_destroy_handler (struct wl_listener *listener,
+                                 void *data)
+{
+  ClaylandBuffer *buffer = wl_container_of (listener, buffer, destroy_listener);
+
+  wl_signal_emit (&buffer->destroy_signal, buffer);
+  g_slice_free (ClaylandBuffer, buffer);
+}
+
+static ClaylandBuffer *
+clayland_buffer_from_resource (struct wl_resource *resource)
+{
+  ClaylandBuffer *buffer;
+  struct wl_listener *listener;
+
+  listener = wl_resource_get_destroy_listener (resource,
+                                               clayland_buffer_destroy_handler);
+
+  if (listener)
+    {
+      buffer = wl_container_of (listener, buffer, destroy_listener);
+    }
+  else
+    {
+      buffer = g_slice_new0 (ClaylandBuffer);
+
+      buffer->resource = resource;
+      wl_signal_init (&buffer->destroy_signal);
+      buffer->destroy_listener.notify = clayland_buffer_destroy_handler;
+      wl_resource_add_destroy_listener (resource, &buffer->destroy_listener);
+    }
+
+  return buffer;
+}
+
+static void
+clayland_buffer_reference_handle_destroy (struct wl_listener *listener,
+                                          void *data)
+{
+  ClaylandBufferReference *ref =
+    wl_container_of (listener, ref, destroy_listener);
+
+  g_assert (data == ref->buffer);
+
+  ref->buffer = NULL;
+}
+
+static void
+clayland_buffer_reference (ClaylandBufferReference *ref,
+                           ClaylandBuffer *buffer)
+{
+  if (ref->buffer && buffer != ref->buffer)
+    {
+      ref->buffer->busy_count--;
+
+      if (ref->buffer->busy_count == 0)
+        {
+          g_assert (wl_resource_get_client (ref->buffer->resource));
+          wl_resource_queue_event (ref->buffer->resource, WL_BUFFER_RELEASE);
+        }
+
+      wl_list_remove (&ref->destroy_listener.link);
+    }
+
+  if (buffer && buffer != ref->buffer)
+    {
+      buffer->busy_count++;
+      wl_signal_add (&buffer->destroy_signal, &ref->destroy_listener);
+    }
+
+  ref->buffer = buffer;
+  ref->destroy_listener.notify = clayland_buffer_reference_handle_destroy;
+}
+
+static void
 surface_damaged (ClaylandSurface *surface,
                  cairo_region_t *region)
 {
-  struct wl_buffer *wayland_buffer = surface->buffer;
-
-  if (surface->actor)
+  if (surface->actor &&
+      surface->buffer_ref.buffer)
     {
       int i, n_rectangles = cairo_region_num_rectangles (region);
       ClutterWaylandSurface *surface_actor =
         CLUTTER_WAYLAND_SURFACE (surface->actor);
+      struct wl_resource *wayland_buffer = surface->buffer_ref.buffer->resource;
 
       for (i = 0; i < n_rectangles; i++)
         {
@@ -236,55 +311,18 @@ clayland_surface_destroy (struct wl_client *wayland_client,
 }
 
 static void
-clayland_surface_detach_buffer (ClaylandSurface *surface)
-{
-  struct wl_buffer *buffer = surface->buffer;
-
-  if (buffer)
-    {
-      wl_list_remove (&surface->buffer_destroy_listener.link);
-
-      surface->buffer = NULL;
-
-      /* FIXME: This should probably ask the ClutterWaylandSurface to
-       * destroy its texture? */
-    }
-}
-
-static void
-clayland_surface_detach_buffer_and_notify (ClaylandSurface *surface)
-{
-  struct wl_buffer *buffer = surface->buffer;
-
-  if (buffer)
-    {
-      g_assert (buffer->resource.client != NULL);
-
-      wl_resource_queue_event (&buffer->resource, WL_BUFFER_RELEASE);
-
-      clayland_surface_detach_buffer (surface);
-    }
-}
-
-static void
-surface_handle_buffer_destroy (struct wl_listener *listener,
-                               void *data)
-{
-  ClaylandSurface *surface =
-    wl_container_of (listener, surface, buffer_destroy_listener);
-
-  clayland_surface_detach_buffer (surface);
-}
-
-static void
 clayland_surface_attach (struct wl_client *wayland_client,
                          struct wl_resource *wayland_surface_resource,
                          struct wl_resource *wayland_buffer_resource,
                          gint32 sx, gint32 sy)
 {
   ClaylandSurface *surface = wayland_surface_resource->data;
-  struct wl_buffer *buffer =
-    wayland_buffer_resource ? wayland_buffer_resource->data : NULL;
+  ClaylandBuffer *buffer;
+
+  if (wayland_buffer_resource)
+    buffer = clayland_buffer_from_resource (wayland_buffer_resource);
+  else
+    buffer = NULL;
 
   /* Attach without commit in between does not send wl_buffer.release */
   if (surface->pending.buffer)
@@ -296,7 +334,7 @@ clayland_surface_attach (struct wl_client *wayland_client,
   surface->pending.newly_attached = TRUE;
 
   if (buffer)
-    wl_signal_add (&buffer->resource.destroy_signal,
+    wl_signal_add (&buffer->destroy_signal,
                    &surface->pending.buffer_destroy_listener);
 }
 
@@ -372,14 +410,15 @@ clayland_surface_commit (struct wl_client *client,
 
   /* wl_surface.attach */
   if (surface->pending.newly_attached &&
-      surface->pending.buffer != surface->buffer)
+      surface->buffer_ref.buffer != surface->pending.buffer)
     {
-      clayland_surface_detach_buffer_and_notify (surface);
+      clayland_buffer_reference (&surface->buffer_ref, surface->pending.buffer);
 
       if (surface->pending.buffer)
         {
           ClutterWaylandSurface *surface_actor;
           GError *error = NULL;
+          struct wl_resource *buffer = surface->pending.buffer->resource;
 
           if (!surface->actor)
             {
@@ -395,7 +434,7 @@ clayland_surface_commit (struct wl_client *client,
           surface_actor = CLUTTER_WAYLAND_SURFACE (surface->actor);
 
           if (!clutter_wayland_surface_attach_buffer (surface_actor,
-                                                      surface->pending.buffer,
+                                                      buffer,
                                                       &error))
             {
               g_warning ("Failed to attach buffer to "
@@ -403,11 +442,6 @@ clayland_surface_commit (struct wl_client *client,
                          error->message);
               g_clear_error (&error);
             }
-
-          surface->buffer = surface->pending.buffer;
-
-          wl_signal_add (&surface->buffer->resource.destroy_signal,
-                         &surface->buffer_destroy_listener);
         }
     }
   if (surface->pending.buffer)
@@ -420,7 +454,7 @@ clayland_surface_commit (struct wl_client *client,
   surface->pending.newly_attached = FALSE;
 
   /* wl_surface.damage */
-  if (surface->buffer &&
+  if (surface->buffer_ref.buffer &&
       surface->actor)
     surface_damaged (surface, surface->pending.damage);
   empty_region (surface->pending.damage);
@@ -466,7 +500,8 @@ clayland_surface_free (ClaylandSurface *surface)
   ClaylandFrameCallback *cb, *next;
 
   compositor->surfaces = g_list_remove (compositor->surfaces, surface);
-  clayland_surface_detach_buffer_and_notify (surface);
+
+  clayland_buffer_reference (&surface->buffer_ref, NULL);
 
   if (surface->actor)
     clutter_actor_destroy (surface->actor);
@@ -521,9 +556,6 @@ clayland_compositor_create_surface (struct wl_client *wayland_client,
   surface->resource.data = surface;
 
   surface->pending.damage = cairo_region_create ();
-
-  surface->buffer_destroy_listener.notify =
-    surface_handle_buffer_destroy;
 
   surface->pending.buffer_destroy_listener.notify =
     surface_handle_pending_buffer_destroy;

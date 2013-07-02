@@ -31,12 +31,33 @@ typedef struct _ClaylandCompositor ClaylandCompositor;
 
 typedef struct
 {
+  struct wl_resource *resource;
+  struct wl_signal destroy_signal;
+  struct wl_listener destroy_listener;
+
+  union
+  {
+    struct wl_shm_buffer *shm_buffer;
+    struct wl_buffer *legacy_buffer;
+  };
+
+  int32_t width, height;
+  uint32_t busy_count;
+} ClaylandBuffer;
+
+typedef struct
+{
+  ClaylandBuffer *buffer;
+  struct wl_listener destroy_listener;
+} ClaylandBufferReference;
+
+typedef struct
+{
   struct wl_resource resource;
   ClaylandCompositor *compositor;
   int x;
   int y;
-  struct wl_buffer *buffer;
-  struct wl_listener buffer_destroy_listener;
+  ClaylandBufferReference buffer_ref;
   ClutterActor *actor;
   gboolean has_shell_surface;
 
@@ -45,7 +66,7 @@ typedef struct
   {
     /* wl_surface.attach */
     gboolean newly_attached;
-    struct wl_buffer *buffer;
+    ClaylandBuffer *buffer;
     struct wl_listener buffer_destroy_listener;
     int32_t sx;
     int32_t sy;
