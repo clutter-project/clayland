@@ -235,18 +235,17 @@ default_grab_key (ClaylandKeyboardGrab *grab,
 static struct wl_resource *
 find_resource_for_surface (struct wl_list *list, ClaylandSurface *surface)
 {
-  struct wl_resource *r;
+  struct wl_client *client;
 
   if (!surface)
     return NULL;
 
-  wl_list_for_each (r, list, link)
-  {
-    if (r->client == wl_resource_get_client (surface->resource))
-      return r;
-  }
+  if (!surface->resource)
+    return NULL;
 
-  return NULL;
+  client = wl_resource_get_client (surface->resource);
+
+  return wl_resource_find_for_client (list, client);
 }
 
 static void

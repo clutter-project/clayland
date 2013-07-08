@@ -146,20 +146,6 @@ static struct wl_data_source_interface data_source_interface = {
   data_source_destroy
 };
 
-static struct wl_resource *
-find_resource (struct wl_list *list, struct wl_client *client)
-{
-  struct wl_resource *r;
-
-  wl_list_for_each (r, list, link)
-  {
-    if (r->client == client)
-      return r;
-  }
-
-  return NULL;
-}
-
 static void
 destroy_drag_focus (struct wl_listener *listener, void *data)
 {
@@ -195,8 +181,8 @@ drag_grab_focus (ClaylandPointerGrab *grab,
       wl_resource_get_client (surface->resource) != seat->drag_client)
     return;
 
-  resource = find_resource (&seat->drag_resource_list,
-                            wl_resource_get_client (surface->resource));
+  client = wl_resource_get_client (surface->resource);
+  resource = wl_resource_find_for_client (&seat->drag_resource_list, client);
   if (!resource)
     return;
 
@@ -347,7 +333,9 @@ destroy_selection_data_source (struct wl_listener *listener, void *data)
 
   if (focus)
     {
-      data_device = find_resource (&seat->drag_resource_list, focus->client);
+      data_device =
+        wl_resource_find_for_client (&seat->drag_resource_list,
+                                     wl_resource_get_client (focus));
       if (data_device)
         wl_data_device_send_selection (data_device, NULL);
     }
@@ -381,7 +369,9 @@ clayland_seat_set_selection (ClaylandSeat *seat,
 
   if (focus)
     {
-      data_device = find_resource (&seat->drag_resource_list, focus->client);
+      data_device =
+        wl_resource_find_for_client (&seat->drag_resource_list,
+                                     wl_resource_get_client (focus));
       if (data_device && source)
         {
           offer = clayland_data_source_send_offer (seat->selection_data_source,
@@ -416,7 +406,7 @@ data_device_set_selection (struct wl_client *client,
 
   /* FIXME: Store serial and check against incoming serial here. */
   clayland_seat_set_selection (wl_resource_get_user_data (resource),
-                               source_resource->data,
+                               wl_resource_get_user_data (source_resource),
                                serial);
 }
 
@@ -500,7 +490,7 @@ get_data_device (struct wl_client *client,
                  struct wl_resource *manager_resource,
                  guint32 id, struct wl_resource *seat_resource)
 {
-  ClaylandSeat *seat = seat_resource->data;
+  ClaylandSeat *seat = wl_resource_get_user_data (seat_resource);
   struct wl_resource *resource;
 
   resource = wl_client_add_object (client, &wl_data_device_interface,
@@ -533,7 +523,9 @@ clayland_data_device_set_keyboard_focus (ClaylandSeat *seat)
   if (!focus)
     return;
 
-  data_device = find_resource (&seat->drag_resource_list, focus->client);
+  data_device =
+    wl_resource_find_for_client (&seat->drag_resource_list,
+                                 wl_resource_get_client (focus));
   if (!data_device)
     return;
 

@@ -119,8 +119,8 @@ seat_get_pointer (struct wl_client *client,
 
   cr = wl_client_add_object (client, &wl_pointer_interface,
                              &pointer_interface, id, seat);
-  wl_list_insert (&seat->pointer.resource_list, &cr->link);
-  cr->destroy = unbind_resource;
+  wl_list_insert (&seat->pointer.resource_list, wl_resource_get_link (cr));
+  wl_resource_set_destructor (cr, unbind_resource);
 
   if (seat->pointer.focus &&
       wl_resource_get_client (seat->pointer.focus->resource) == client)
@@ -148,8 +148,8 @@ seat_get_keyboard (struct wl_client *client,
   struct wl_resource *cr;
 
   cr = wl_client_add_object (client, &wl_keyboard_interface, NULL, id, seat);
-  wl_list_insert (&seat->keyboard.resource_list, &cr->link);
-  cr->destroy = unbind_resource;
+  wl_list_insert (&seat->keyboard.resource_list, wl_resource_get_link (cr));
+  wl_resource_set_destructor (cr, unbind_resource);
 
   wl_keyboard_send_keymap (cr,
                            WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1,
