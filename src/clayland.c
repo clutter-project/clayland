@@ -1084,26 +1084,23 @@ start_xwayland (ClaylandCompositor *compositor)
       compositor->xwayland_abstract_fd = bind_to_abstract_socket (display);
       if (compositor->xwayland_abstract_fd < 0)
         {
+          unlink (lockfile);
+
           if (errno == EADDRINUSE)
             {
-              unlink (lockfile);
               display++;
               continue;
             }
+          else
+            return FALSE;
+        }
 
-          compositor->xwayland_unix_fd = bind_to_unix_socket (display);
-          if (compositor->xwayland_abstract_fd < 0)
-            {
-              unlink (lockfile);
-
-              if (errno == EADDRINUSE)
-                {
-                  display++;
-                  continue;
-                }
-              else
-                return FALSE;
-            }
+      compositor->xwayland_unix_fd = bind_to_unix_socket (display);
+      if (compositor->xwayland_abstract_fd < 0)
+        {
+          unlink (lockfile);
+          close (compositor->xwayland_abstract_fd);
+          return FALSE;
         }
 
       break;
